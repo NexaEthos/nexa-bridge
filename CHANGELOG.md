@@ -7,6 +7,12 @@ lives in the wiki pages under `docs/wiki/`.
 
 ## [Unreleased]
 
+### Changed
+
+- The first public release. The programs are those of 1.0.0-3; only the documentation changed since: the pool
+  examples use generic LAN addresses, and the desktop page says the releases are signed and notarized for macOS and
+  signed for Windows.
+
 ## [1.0.0-3] - 2026-10-19
 
 ### Added
