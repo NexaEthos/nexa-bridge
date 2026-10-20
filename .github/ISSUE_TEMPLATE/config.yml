@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
+  - name: Questions and help
+    url: https://github.com/NexaEthos/nexa-bridge/discussions/categories/q-a
+    about: How to connect a model server or a machine — ask in Discussions, where answers stay findable.
   - name: Security vulnerability
     url: https://github.com/NexaEthos/nexa-bridge/blob/main/SECURITY.md
     about: Never in a public issue — SECURITY.md says where to write.
