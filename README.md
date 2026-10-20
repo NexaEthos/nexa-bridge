@@ -287,6 +287,12 @@ Every release file carries a GitHub provenance attestation and a line in `SHA256
 `gh attestation verify <file> --repo NexaEthos/nexa-bridge`. How a release is built, verified, signed
 and published is in [docs/wiki/release.md](docs/wiki/release.md).
 
+## Questions and ideas
+
+Ask in [Discussions](https://github.com/NexaEthos/nexa-bridge/discussions): **Q&A** for how to connect a model server
+or a machine, **Ideas** for what the bridge should do next, **Show and tell** for what you run with it. Issues are for
+bugs.
+
 ## Security
 
 Report vulnerabilities privately — see [SECURITY.md](SECURITY.md).
