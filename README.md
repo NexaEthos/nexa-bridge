@@ -10,6 +10,7 @@
 
 <p align="center">
   <a href="https://agora.nexaethos.com">Nexa Agora</a> ·
+  <a href="#on-your-computer-the-desktop-app">Desktop app</a> ·
   <a href="#on-a-linux-server-one-command">Server CLI</a> ·
   <a href="#high-availability-and-load-balancing">High availability &amp; load balancing</a> ·
   <a href="#quickstart">Quickstart</a> ·
@@ -32,6 +33,18 @@ A small, fast **Rust** workspace that puts an OpenAI-compatible proxy in front o
 Ollama, LM Studio, llama.cpp) and holds an outbound tunnel to the cloud. [Nexa Agora](https://agora.nexaethos.com),
 or any platform that speaks the OpenAI API, then uses your box like any other endpoint, which is what makes a
 genuinely sovereign, EU-resident model path possible.
+
+## On your computer: the desktop app
+
+<p align="center">
+  <img src="docs/images/nexa-bridge-desktop.png" width="380" alt="The Nexa Bridge desktop app: link the computer to Agora, choose a local model, review the connection">
+</p>
+
+For a laptop or a workstation, on macOS, Windows and Linux. Link the computer to your Nexa Agora workspace with an
+approval in your browser, choose a model your local server has loaded (LM Studio, Ollama, llama.cpp or vLLM), review
+where it will be available, and connect. The app keeps its credential in the operating system's keychain and runs the
+bridge and the connector for you: no API key to manage. Download it from the
+[latest release](https://github.com/NexaEthos/nexa-bridge/releases/latest).
 
 ## On a Linux server: one command
 
