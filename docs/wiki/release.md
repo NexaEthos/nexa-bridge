@@ -199,7 +199,7 @@ explicitly excluded. No persistent application password is required.
 
 The Entra federation trusts issuer `https://token.actions.githubusercontent.com`, audience
 `api://AzureADTokenExchange` and the immutable subject
-`repo:NexaEthos@206276720/nexa-bridge@1423229403:environment:release` (the repository emits subjects with the
+`repo:NexaEthos@206276720/nexa-bridge@1426724024:environment:release` (the repository emits subjects with the
 owner's and the repository's numeric ids, so a repository recreated under the same name cannot present it).
 This subject selects the repository environment, not a workflow filename. Any job admitted to
 that environment and given `id-token: write` can request this identity. Keep the environment
@@ -231,6 +231,8 @@ ambiguous match fails before publication, preserving the candidate-to-release ma
 
 ## Changelog
 
+- 2026-10-20 — The Windows federation names this repository's id: the repository was born again under
+  the same name, so its subject is new.
 - 2026-10-19 — The connector and the desktop depend on `nexa-link`: release preparation lets its version follow the
   release in both manifests and commits the connector's manifest with the other four files.
 - 2026-10-19 — Release preparation accepts only `X.Y.Z` or `X.Y.Z-N` (N up to 65535): the `1.0.0-rc.1`

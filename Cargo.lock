@@ -2610,11 +2610,11 @@ checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
 name = "nexa-build-info"
-version = "1.0.0-3"
+version = "1.0.0"
 
 [[package]]
 name = "nexa-desktop"
-version = "1.0.0-3"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "futures-util",
@@ -2644,7 +2644,7 @@ dependencies = [
 
 [[package]]
 name = "nexa-link"
-version = "1.0.0-3"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "futures-util",
@@ -2659,7 +2659,7 @@ dependencies = [
 
 [[package]]
 name = "nexa-llm-bridge"
-version = "1.0.0-3"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2682,7 +2682,7 @@ dependencies = [
 
 [[package]]
 name = "nexa-llm-connector"
-version = "1.0.0-3"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "bytes",
@@ -2704,7 +2704,7 @@ dependencies = [
 
 [[package]]
 name = "nexa-robot"
-version = "1.0.0-3"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "figment",
@@ -2723,7 +2723,7 @@ dependencies = [
 
 [[package]]
 name = "nexa-tunnel-protocol"
-version = "1.0.0-3"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "bytes",
