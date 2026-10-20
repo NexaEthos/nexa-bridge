@@ -95,7 +95,7 @@ The table records immediate consumers, not a claim that every platform has been 
 | `syn` | `2.0.119` | `defmt-macros 1.1.1`, `derive_more-impl 2.1.1`, `dlopen2_derive 0.4.3`, `enumflags2_derive 0.7.12`, `glib-macros 0.18.5`, `gtk3-macros 0.18.2`, `jiff-static 0.2.38`, `jni-macros 0.22.4`, `jni-sys-macros 0.4.1`, `num_enum_derive 0.7.6`, `pear_codegen 0.2.9`, `phf_macros 0.13.1`, `proc-macro2-diagnostics 0.10.1`, `schemars_derive 0.8.22`, `serde_derive_internals 0.29.1`, `serialize-to-javascript-impl 0.1.2`, `tao-macros 0.1.4`, `tauri-codegen 2.7.1`, `tauri-macros 2.7.1`, `thiserror-impl 1.0.69`, `tracing-attributes 0.1.31`, `webview2-com-macros 0.8.1`, `windows-implement 0.60.2`, `windows-interface 0.59.3`, `zerocopy-derive 0.8.62` |
 | `syn` | `3.0.6` | `async-recursion 1.2.0`, `async-trait 0.1.92`, `cssparser-macros 0.7.1`, `darling_core 0.24.1`, `darling_macro 0.24.1`, `displaydoc 0.2.7`, `foreign-types-macros 0.2.4`, `futures-macro 0.3.34`, `ref-cast-impl 1.0.27`, `serde_derive 1.0.229`, `serde_repr 0.1.21`, `serde_with_macros 3.24.0`, `synstructure 0.14.0`, `thiserror-impl 2.0.21`, `tokio-macros 2.7.2`, `wasm-bindgen-macro-support 0.2.129`, `yoke-derive 0.8.4`, `zbus_macros 5.19.0`, `zerofrom-derive 0.1.8`, `zerovec-derive 0.11.6`, `zvariant_derive 5.15.0`, `zvariant_utils 4.2.0` |
 | `thiserror` | `1.0.69` | `cairo-rs 0.18.5`, `gio 0.18.4`, `glib 0.18.5`, `jni 0.21.1`, `ndk 0.9.0` |
-| `thiserror` | `2.0.21` | `auto-launch 0.6.0`, `cargo_metadata 0.19.2`, `defmt-parser 1.0.0`, `jni 0.22.4`, `json-patch 4.2.0`, `muda 0.20.0`, `redox_users 0.5.3`, `smappservice-rs 0.1.3`, `tauri 2.12.1`, `tauri-codegen 2.7.1`, `tauri-plugin-autostart 2.7.0`, `tauri-plugin-opener 2.7.0`, `tauri-plugin-shell 2.4.1`, `tauri-plugin-single-instance 2.5.2`, `tauri-runtime 2.12.1`, `tauri-utils 2.10.1`, `tray-icon 0.25.1`, `tungstenite 0.29.0`, `tungstenite 0.30.0`, `webview2-com-sys 0.39.1`, `wry 0.57.0` |
+| `thiserror` | `2.0.21` | `auto-launch 0.6.0`, `cargo_metadata 0.19.2`, `defmt-parser 1.0.0`, `jni 0.22.4`, `json-patch 4.2.0`, `muda 0.20.0`, `redox_users 0.5.3`, `smappservice-rs 0.1.3`, `tauri 2.12.1`, `tauri-codegen 2.7.1`, `tauri-plugin-autostart 2.7.0`, `tauri-plugin-opener 2.7.0`, `tauri-plugin-shell 2.4.1`, `tauri-plugin-single-instance 2.5.3`, `tauri-runtime 2.12.1`, `tauri-utils 2.10.1`, `tray-icon 0.25.1`, `tungstenite 0.29.0`, `tungstenite 0.30.0`, `webview2-com-sys 0.39.1`, `wry 0.57.0` |
 | `thiserror-impl` | `1.0.69` | `thiserror 1.0.69` |
 | `thiserror-impl` | `2.0.21` | `thiserror 2.0.21` |
 | `tokio-tungstenite` | `0.29.0` | `axum 0.8.9` |
@@ -115,7 +115,8 @@ The table records immediate consumers, not a claim that every platform has been 
 | `webpki-roots` | `1.0.9` | `webpki-roots 0.26.11` |
 | `windows-sys` | `0.45.0` | `jni 0.21.1` |
 | `windows-sys` | `0.52.0` | `ring 0.17.14` |
-| `windows-sys` | `0.61.2` | `async-io 2.6.0`, `async-signal 0.2.14`, `dbus 0.9.12`, `dirs-sys 0.5.0`, `errno 0.3.14`, `mio 1.2.4`, `muda 0.20.0`, `nu-ansi-term 0.50.3`, `os_info 3.15.0`, `os_pipe 1.2.3`, `polling 3.11.0`, `rustix 1.1.5`, `rustls-platform-verifier 0.7.1`, `schannel 0.1.29`, `shared_child 1.1.2`, `socket2 0.6.5`, `softbuffer 0.4.8`, `tauri-plugin-single-instance 2.5.2`, `tempfile 3.27.0`, `tokio 1.53.2`, `tray-icon 0.25.1`, `uds_windows 1.2.1`, `winapi-util 0.1.11`, `window-vibrancy 0.8.1`, `windows-native-keyring-store 1.1.0`, `winreg 0.56.0`, `zbus 5.19.0` |
+| `windows-sys` | `0.60.2` | `tauri-plugin-shell 2.5.0` |
+| `windows-sys` | `0.61.2` | `async-io 2.6.0`, `async-signal 0.2.14`, `dbus 0.9.12`, `dirs-sys 0.5.0`, `errno 0.3.14`, `mio 1.2.4`, `muda 0.20.0`, `nu-ansi-term 0.50.3`, `os_info 3.15.0`, `os_pipe 1.2.3`, `polling 3.11.0`, `rustix 1.1.5`, `rustls-platform-verifier 0.7.1`, `schannel 0.1.29`, `shared_child 1.1.2`, `socket2 0.6.5`, `softbuffer 0.4.8`, `tauri-plugin-single-instance 2.5.3`, `tempfile 3.27.0`, `tokio 1.53.3`, `tray-icon 0.25.1`, `uds_windows 1.2.1`, `winapi-util 0.1.11`, `window-vibrancy 0.8.1`, `windows-native-keyring-store 1.1.0`, `winreg 0.56.0`, `zbus 5.19.0` |
 | `windows-targets` | `0.42.2` | `windows-sys 0.45.0` |
 | `windows-targets` | `0.52.6` | `windows-sys 0.52.0` |
 | `windows_aarch64_gnullvm` | `0.42.2` | `windows-targets 0.42.2` |
@@ -124,6 +125,7 @@ The table records immediate consumers, not a claim that every platform has been 
 | `windows_aarch64_msvc` | `0.52.6` | `windows-targets 0.52.6` |
 | `windows_i686_gnu` | `0.42.2` | `windows-targets 0.42.2` |
 | `windows_i686_gnu` | `0.52.6` | `windows-targets 0.52.6` |
+| `windows_i686_gnullvm` | `0.52.6` | `windows-targets 0.52.6` |
 | `windows_i686_msvc` | `0.42.2` | `windows-targets 0.42.2` |
 | `windows_i686_msvc` | `0.52.6` | `windows-targets 0.52.6` |
 | `windows_x86_64_gnu` | `0.42.2` | `windows-targets 0.42.2` |
