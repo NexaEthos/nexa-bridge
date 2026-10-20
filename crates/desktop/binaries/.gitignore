@@ -1,0 +1,3 @@
+# Sidecar binaries are built artifacts, synced by sync-sidecars.sh
+*
+!.gitignore

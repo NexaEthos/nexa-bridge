@@ -1,0 +1,37 @@
+name: Bug report
+description: Something behaves differently from what the documentation says.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Security bugs go to the address in SECURITY.md, never here.
+  - type: input
+    id: version
+    attributes:
+      label: Version and build
+      description: The version, the commit if you built it yourself, and whether it is an official build or your own.
+      placeholder: 0.1.0 · official DMG / built from a1b2c3d
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      description: OS, version and architecture; for the box, the model server and its version.
+      placeholder: macOS 15.3 arm64 · Ollama 0.6 on Ubuntu 24.04 x86_64
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options: [bridge, connector, desktop, protocol, robot, docs]
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, what you expected
+      description: Steps to reproduce, the exact error text, the relevant log lines with secrets removed.
+    validations:
+      required: true

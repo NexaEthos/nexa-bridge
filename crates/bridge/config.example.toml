@@ -1,0 +1,47 @@
+# nexa-bridge config example. Copy to config.toml (gitignored) OR set BRIDGE_* env vars.
+# Env wins over file: BRIDGE_UPSTREAM_URL, BRIDGE_API_KEY, BRIDGE_LISTEN_ADDR, …
+# Full reference: docs/wiki/configuration.md
+
+# Your model server = scheme + host ONLY (no /v1). The bridge forwards the full request path.
+upstream_url = "http://127.0.0.1:8000"
+
+# Bearer key callers must present. Generate one: openssl rand -hex 32
+# Leave unset ONLY for a localhost smoke test (the bridge logs an UNAUTHENTICATED warning).
+# api_key = "replace-with-openssl-rand-hex-32"
+
+# Key the bridge presents to your model server, if you started it with --api-key.
+# upstream_api_key = "the-upstream-key"
+
+# Loopback by default: the connector runs on the same box. Bind a LAN/0.0.0.0 address
+# ONLY with api_key set — the bridge would otherwise be an open proxy to your GPU.
+listen_addr = "127.0.0.1:8088"
+
+# Request body cap (the prompt). Leave at the default unless you know you need less:
+# large-context models produce multi-MiB JSON, and a low cap 413s them.
+# max_body_bytes = 16777216
+
+upstream_connect_timeout_secs = 10
+upstream_read_timeout_secs = 900   # per-chunk, not total — long generations are fine
+log_format = "json"
+
+# --- Multi-upstream + load balancing (optional) — docs/wiki/load-balancing.md ---
+# Route by served-model-name. Several entries sharing a `models` name form a pool
+# (context-fit → affinity or least-connections → saturation/breaker demotion → failover).
+# Unmatched or model-less requests fall back to `upstream_url` above.
+#
+# [[upstreams]]
+# url = "http://192.0.2.10:1234"                  # scheme+host, NO /v1
+# models = ["my-model"]                           # EXACT served ids (GET /v1/models on the box)
+# # upstream_api_key = "key-if-the-server-needs-one"
+# # upstream_model = "vendor/actual-served-id"    # expose one canonical name, forward another
+# # system_first = true                           # strict chat templates: non-leading system → user
+# # max_body_bytes = 33554432                     # this device's context budget (fit check)
+# # max_inflight = 32                             # its concurrency budget (e.g. vLLM --max-num-seqs)
+
+# --- Circuit breaker — docs/wiki/load-balancing.md ---
+# breaker_failures = 2
+# breaker_cooldown_secs = 30
+
+# --- /_node/* observability — docs/wiki/node-observability.md ---
+# Units `/_node/logs` may tail (whitelist).
+# log_units = ["vllm", "nexa-llm-bridge", "nexa-llm-connector"]

@@ -1,0 +1,16 @@
+name: Feature request
+description: Something the bridge should do and does not.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you are trying to do on your box and where it stops today.
+    validations:
+      required: true
+  - type: textarea
+    id: shape
+    attributes:
+      label: The shape you have in mind
+      description: Optional. The wiki page it would change, and anything it must not break (loopback default, the tunnel's trust model, byte-for-byte streaming).

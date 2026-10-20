@@ -1,0 +1,543 @@
+name: Release publish
+# Wiki: docs/wiki/release.md
+
+on:
+  workflow_run:
+    workflows: ["Release candidate"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "The tag whose candidate is promoted (vX.Y.Z)"
+        required: true
+        type: string
+      candidate_run_id:
+        description: "The run id of the Release candidate workflow that built and attested it"
+        required: true
+        type: string
+
+concurrency:
+  group: release-publish-${{ inputs.tag || github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  TAG: ${{ inputs.tag || github.event.workflow_run.head_branch }}
+  CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id || github.event.workflow_run.id }}
+  TAURI_CLI: "2.12.1"
+
+jobs:
+  verify:
+    name: verify the candidate
+    if: >-
+      github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success'
+      && github.event.workflow_run.event == 'push'
+      && github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    environment: release
+    permissions:
+      contents: read
+      actions: read
+      attestations: read
+    outputs:
+      version: ${{ steps.candidate.outputs.version }}
+      commit: ${{ steps.candidate.outputs.commit }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ env.TAG }}
+          fetch-depth: 0
+      - name: The candidate is the tag's own build, green, made by the candidate workflow
+        id: candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          commit=$(git rev-parse "refs/tags/${TAG}^{commit}")
+          run=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${CANDIDATE_RUN_ID}")
+          [ "$(jq -r .head_sha <<<"$run")" = "$commit" ] \
+            || { echo "::error::run ${CANDIDATE_RUN_ID} did not build ${TAG} (${commit})"; exit 1; }
+          [ "$(jq -r .conclusion <<<"$run")" = "success" ] \
+            || { echo "::error::run ${CANDIDATE_RUN_ID} is not green"; exit 1; }
+          [ "$(jq -r .path <<<"$run")" = ".github/workflows/release-candidate.yml" ] \
+            || { echo "::error::run ${CANDIDATE_RUN_ID} is not a Release candidate run"; exit 1; }
+          [ "$(jq -r .event <<<"$run")" = "push" ] \
+            || { echo "::error::run ${CANDIDATE_RUN_ID} was not started by the tag push"; exit 1; }
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "commit=${commit}" >> "$GITHUB_OUTPUT"
+      - name: Download the candidate by run id — never rebuilt
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download "$CANDIDATE_RUN_ID" --name "candidate-${TAG}" --dir candidate
+      - name: Every byte matches the candidate's list and the record names this tag and run
+        run: |
+          set -euo pipefail
+          cd candidate
+          sha256sum --check --strict --quiet SHA256SUMS
+          [ "$(jq -r .commit candidate.json)" = "${{ steps.candidate.outputs.commit }}" ] \
+            || { echo "::error::candidate.json names another commit"; exit 1; }
+          [ "$(jq -r .run_id candidate.json)" = "$CANDIDATE_RUN_ID" ] \
+            || { echo "::error::candidate.json names another run"; exit 1; }
+      - name: Every file carries GitHub's provenance from the candidate workflow, every binary its SBOM
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd candidate
+          signer="${GITHUB_REPOSITORY}/.github/workflows/release-candidate.yml"
+          while read -r _sum path; do
+            gh attestation verify "$path" --repo "$GITHUB_REPOSITORY" --signer-workflow "$signer" \
+              --predicate-type https://slsa.dev/provenance/v1 > /dev/null
+          done < SHA256SUMS
+          for path in cli-*/nexa-llm-* desktop-*/bin/*; do
+            gh attestation verify "$path" --repo "$GITHUB_REPOSITORY" --signer-workflow "$signer" \
+              --predicate-type https://spdx.dev/Document/v2.3 > /dev/null
+          done
+          echo "verified $(wc -l < SHA256SUMS) files of candidate ${TAG}"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: verified-${{ env.TAG }}
+          path: candidate
+          retention-days: 7
+          if-no-files-found: error
+
+  sign-macos:
+    name: sign macOS (${{ matrix.target }})
+    needs: verify
+    runs-on: macos-15
+    environment: release
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [aarch64-apple-darwin, x86_64-apple-darwin]
+    env:
+      TARGET: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ env.TAG }}
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable branch
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: verified-${{ env.TAG }}
+          path: candidate
+      - name: The signing inputs are present in the release environment
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            [ -n "${!name}" ] || { echo "::error::${name} is missing from the release environment"; exit 1; }
+          done
+      - name: Place the candidate's compiled bytes where the bundler reads them
+        run: |
+          set -euo pipefail
+          src="candidate/desktop-${TARGET}/bin"
+          mkdir -p "target/${TARGET}/release" crates/desktop/binaries
+          install -m 0755 "$src/nexa-desktop" "target/${TARGET}/release/nexa-desktop"
+          for bin in nexa-llm-bridge nexa-llm-connector; do
+            install -m 0755 "$src/$bin-${TARGET}" "crates/desktop/binaries/$bin-${TARGET}"
+          done
+      - name: The Developer ID identity in a job keychain — re-encoded in the job when macOS cannot read the bundle
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          p12="${RUNNER_TEMP}/certificate.p12"
+          info="${RUNNER_TEMP}/p12-info"
+          pem="${RUNNER_TEMP}/identity.pem"
+          trap 'rm -f "$p12" "$info" "$pem"' EXIT
+          keychain="${RUNNER_TEMP}/release.keychain-db"
+          password=$(openssl rand -hex 24)
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 1200 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$p12"
+          if ! security import "$p12" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign > /dev/null 2>&1; then
+            ssl="$(brew --prefix openssl@3)/bin/openssl"
+            if ! "$ssl" pkcs12 -info -noout -in "$p12" -passin env:APPLE_CERTIFICATE_PASSWORD > "$info" 2>&1; then
+              grep -iE "mac|verify|error" "$info" | grep -v "^MAC" || true
+              echo "::error::OpenSSL cannot open APPLE_CERTIFICATE with APPLE_CERTIFICATE_PASSWORD either (its error above): check the pair, then re-export the Developer ID identity"
+              exit 1
+            fi
+            grep -E "^(MAC|PKCS7|Shrouded|Certificate bag)" "$info" || true
+            "$ssl" pkcs12 -in "$p12" -nodes -passin env:APPLE_CERTIFICATE_PASSWORD -out "$pem"
+            "$ssl" pkcs12 -export -legacy -in "$pem" -out "$p12" -passout env:APPLE_CERTIFICATE_PASSWORD
+            rm -f "$pem"
+            security import "$p12" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign > /dev/null
+            echo "::warning::macOS could not read APPLE_CERTIFICATE (OpenSSL 3 encoding, algorithms above): it was re-encoded in the job; re-export it in the legacy format"
+          fi
+          rm -f "$p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" login.keychain-db
+          security find-identity -v -p codesigning "$keychain" | grep -qF "$APPLE_SIGNING_IDENTITY" \
+            || { echo "::error::the imported bundle holds no valid identity named APPLE_SIGNING_IDENTITY"; exit 1; }
+      - name: Sign, notarize and staple the app, then the disk image — Tauri's bundler, nothing compiled
+        working-directory: crates/desktop
+        env:
+          CI: "true"
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npx --yes "@tauri-apps/cli@${TAURI_CLI}" bundle --ci --target "$TARGET" --bundles app dmg
+      - name: Sign and notarize the command-line binaries
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          out="signed/cli-${TARGET}"
+          mkdir -p "$out"
+          for bin in nexa-llm-bridge nexa-llm-connector; do
+            install -m 0755 "candidate/cli-${TARGET}/$bin" "$out/$bin"
+            codesign --force --timestamp --options runtime --sign "$APPLE_SIGNING_IDENTITY" "$out/$bin"
+          done
+          ditto -c -k "$out" "${RUNNER_TEMP}/cli-${TARGET}.zip"
+          xcrun notarytool submit "${RUNNER_TEMP}/cli-${TARGET}.zip" \
+            --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+          rm "${RUNNER_TEMP}/cli-${TARGET}.zip"
+          for bin in nexa-llm-bridge nexa-llm-connector; do codesign --verify --strict "$out/$bin"; done
+      - name: Collect the signed set, Gatekeeper's verdict and the signing report
+        run: |
+          set -euo pipefail
+          out="signed/desktop-${TARGET}"
+          bundle="target/${TARGET}/release/bundle"
+          mkdir -p "$out"
+          cp "$bundle"/dmg/*.dmg "$out/"
+          (cd "$bundle/macos" && for app in *.app; do
+            spctl --assess --type execute --verbose=2 "$app"
+            tar -czf "$OLDPWD/$out/${app%.app}-${TARGET}.app.tar.gz" "$app"
+          done)
+          digests() { (cd "$1" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256 | sed -E "s#^([0-9a-f]{64}) [ *]\./#\1  $1/#"); }
+          { digests "candidate/desktop-${TARGET}/bin"; digests "candidate/cli-${TARGET}"; } > "${RUNNER_TEMP}/inputs"
+          { digests "signed/desktop-${TARGET}"; digests "signed/cli-${TARGET}"; } > "${RUNNER_TEMP}/outputs"
+          ls -1 candidate/desktop-"${TARGET}"/*.dmg candidate/desktop-"${TARGET}"/*.app.tar.gz candidate/cli-"${TARGET}"/nexa-llm-* > "${RUNNER_TEMP}/replaced"
+          jq -n --arg target "$TARGET" --arg tauri "$TAURI_CLI" --arg xcode "$(xcodebuild -version | tr '\n' ' ')" \
+            --rawfile inputs "${RUNNER_TEMP}/inputs" --rawfile outputs "${RUNNER_TEMP}/outputs" --rawfile replaced "${RUNNER_TEMP}/replaced" \
+            '{target: $target,
+              method: "the candidate'"'"'s compiled binaries signed (hardened runtime, timestamp), the app notarized and stapled, the disk image re-created around the signed app by the Tauri bundler; nothing recompiled",
+              tools: {tauri_cli: $tauri, xcode: ($xcode | rtrimstr(" "))},
+              inputs: ($inputs | split("\n") | map(select(length > 0)) | map(capture("^(?<sha256>[0-9a-f]{64})  (?<path>.+)$"))),
+              outputs: ($outputs | split("\n") | map(select(length > 0)) | map(capture("^(?<sha256>[0-9a-f]{64})  (?<path>.+)$"))),
+              replaces: ($replaced | split("\n") | map(select(length > 0)))}' > "signed/signing-report-${TARGET}.json"
+      - name: Forget the keychain
+        if: always()
+        run: if [ -f "${RUNNER_TEMP}/release.keychain-db" ]; then security delete-keychain "${RUNNER_TEMP}/release.keychain-db"; fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: signed-${{ matrix.target }}
+          path: signed
+          retention-days: 7
+          if-no-files-found: error
+
+  sign-windows:
+    name: sign Windows (x86_64-pc-windows-msvc)
+    needs: verify
+    runs-on: windows-2025
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TARGET: x86_64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ env.TAG }}
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable branch
+        with:
+          toolchain: stable
+          targets: x86_64-pc-windows-msvc
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: verified-${{ env.TAG }}
+          path: candidate
+      - name: The signing inputs are present in the release environment
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_SIGNING_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          AZURE_SIGNING_ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          AZURE_SIGNING_PROFILE: ${{ vars.AZURE_SIGNING_PROFILE }}
+        run: |
+          set -euo pipefail
+          for name in AZURE_TENANT_ID AZURE_CLIENT_ID AZURE_SUBSCRIPTION_ID AZURE_SIGNING_ENDPOINT AZURE_SIGNING_ACCOUNT AZURE_SIGNING_PROFILE; do
+            [ -n "${!name}" ] || { echo "::error::${name} is missing from the release environment"; exit 1; }
+          done
+      - name: Stage the candidate's sidecars and command-line binaries for signing
+        run: |
+          set -euo pipefail
+          mkdir -p staged
+          for bin in nexa-llm-bridge nexa-llm-connector; do
+            cp "candidate/desktop-${TARGET}/bin/$bin-${TARGET}.exe" staged/
+            cp "candidate/cli-${TARGET}/$bin.exe" staged/
+          done
+      - name: Authenticate to Azure with the approved release identity
+        uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Sign the executables — Azure Artifact Signing
+        uses: Azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
+        with:
+          exclude-environment-credential: true
+          exclude-workload-identity-credential: true
+          exclude-managed-identity-credential: true
+          exclude-shared-token-cache-credential: true
+          exclude-visual-studio-credential: true
+          exclude-visual-studio-code-credential: true
+          exclude-azure-cli-credential: false
+          exclude-azure-powershell-credential: true
+          exclude-azure-developer-cli-credential: true
+          exclude-interactive-browser-credential: true
+          endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.AZURE_SIGNING_PROFILE }}
+          files-folder: ${{ github.workspace }}\staged
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+      - name: Build and sign the installers — Tauri's bundler marks the app with each package type and signs it after
+        env:
+          CI: "true"
+          AZURE_SIGNING_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          AZURE_SIGNING_ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          AZURE_SIGNING_PROFILE: ${{ vars.AZURE_SIGNING_PROFILE }}
+        run: |
+          set -euo pipefail
+          mkdir -p "target/${TARGET}/release" crates/desktop/binaries
+          cp "candidate/desktop-${TARGET}/bin/nexa-desktop.exe" "target/${TARGET}/release/"
+          for bin in nexa-llm-bridge nexa-llm-connector; do cp "staged/$bin-${TARGET}.exe" crates/desktop/binaries/; done
+          signing=$(jq -nc --arg script "${GITHUB_WORKSPACE}/.github/scripts/artifact-sign.ps1" \
+            '{bundle: {windows: {signCommand: {cmd: "pwsh", args: ["-NoProfile", "-NonInteractive", "-File", $script, "%1"]}}}}')
+          (cd crates/desktop && npx --yes "@tauri-apps/cli@${TAURI_CLI}" bundle --ci --target "$TARGET" --bundles nsis msi --config "$signing")
+          mkdir -p installers
+          find "target/${TARGET}/release/bundle" -type f \( -name '*.msi' -o -name '*-setup.exe' \) -exec cp {} installers/ \;
+      - name: Every signature is valid, the installers' own executables too, each marked with its package type
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function Assert-Signed($path) {
+            $signature = Get-AuthenticodeSignature $path
+            if ($signature.Status -ne 'Valid') { throw "${path}: $($signature.Status)" }
+            Write-Output "${path}: $($signature.SignerCertificate.Subject)"
+          }
+          foreach ($file in Get-ChildItem -File staged, installers) { Assert-Signed $file.FullName }
+          $embedded = New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\embedded"
+          $lines = @()
+          foreach ($installer in Get-ChildItem -File installers) {
+            $out = Join-Path $embedded $installer.Name
+            if ($installer.Extension -eq '.msi') {
+              $process = Start-Process msiexec -ArgumentList '/a', "`"$($installer.FullName)`"", '/qn', "TARGETDIR=`"$out`"" -Wait -PassThru
+              if ($process.ExitCode -ne 0) { throw "$($installer.Name): administrative extraction exited $($process.ExitCode)" }
+              $marker = '__TAURI_BUNDLE_TYPE_VAR_MSI'
+            } else {
+              & 7z x -y "-o$out" $installer.FullName | Out-Null
+              if ($LASTEXITCODE -ne 0) { throw "$($installer.Name): 7-Zip extraction exited $LASTEXITCODE" }
+              $marker = '__TAURI_BUNDLE_TYPE_VAR_NSS'
+            }
+            foreach ($name in 'nexa-desktop.exe', 'nexa-llm-bridge.exe', 'nexa-llm-connector.exe') {
+              $found = @(Get-ChildItem -Recurse -File -Path $out -Filter $name)
+              if ($found.Count -ne 1) { throw "$($installer.Name): expected one $name, found $($found.Count)" }
+              Assert-Signed $found[0].FullName
+              $lines += "$((Get-FileHash -Algorithm SHA256 $found[0].FullName).Hash.ToLower())  $($installer.Name)/$name"
+            }
+            $app = @(Get-ChildItem -Recurse -File -Path $out -Filter 'nexa-desktop.exe')[0]
+            if (-not [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($app.FullName)).Contains($marker)) {
+              throw "$($installer.Name): nexa-desktop.exe does not carry $marker"
+            }
+          }
+          Set-Content -Path "$env:RUNNER_TEMP\embedded.txt" -Value $lines
+      - name: Collect the signed set and the signing report
+        run: |
+          set -euo pipefail
+          mkdir -p "signed/desktop-${TARGET}" "signed/cli-${TARGET}"
+          cp installers/* "signed/desktop-${TARGET}/"
+          for bin in nexa-llm-bridge nexa-llm-connector; do cp "staged/$bin.exe" "signed/cli-${TARGET}/"; done
+          digests() { (cd "$1" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sed -E "s#^([0-9a-f]{64}) [ *]\./#\1  $1/#"); }
+          { digests "candidate/desktop-${TARGET}/bin"; digests "candidate/cli-${TARGET}"; } > "${RUNNER_TEMP}/inputs"
+          { digests "signed/desktop-${TARGET}"; digests "signed/cli-${TARGET}"; } > "${RUNNER_TEMP}/outputs"
+          ls -1 candidate/desktop-"${TARGET}"/*.msi candidate/desktop-"${TARGET}"/*-setup.exe candidate/cli-"${TARGET}"/*.exe > "${RUNNER_TEMP}/replaced"
+          tr -d '\r' < "${RUNNER_TEMP}/embedded.txt" > "${RUNNER_TEMP}/embedded-digests"
+          jq -n --arg target "$TARGET" --arg tauri "$TAURI_CLI" \
+            --rawfile inputs "${RUNNER_TEMP}/inputs" --rawfile outputs "${RUNNER_TEMP}/outputs" --rawfile replaced "${RUNNER_TEMP}/replaced" \
+            --rawfile embedded "${RUNNER_TEMP}/embedded-digests" \
+            '{target: $target,
+              method: "the candidate'"'"'s sidecars and command-line executables signed with Azure Artifact Signing (SHA-256, RFC 3161 timestamp); the Tauri bundler marked the candidate'"'"'s desktop executable with each package type and signed it, the uninstaller and the installers with the same identity; nothing recompiled",
+              tools: {tauri_cli: $tauri, signing: "Azure/artifact-signing-action v2.0.0, ArtifactSigning module through the bundler sign command"},
+              inputs: ($inputs | split("\n") | map(select(length > 0)) | map(capture("^(?<sha256>[0-9a-f]{64})  (?<path>.+)$"))),
+              outputs: ($outputs | split("\n") | map(select(length > 0)) | map(capture("^(?<sha256>[0-9a-f]{64})  (?<path>.+)$"))),
+              embedded: ($embedded | split("\n") | map(select(length > 0)) | map(capture("^(?<sha256>[0-9a-f]{64})  (?<path>.+)$"))),
+              replaces: ($replaced | split("\n") | map(select(length > 0)))}' > "signed/signing-report-${TARGET}.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: signed-${{ env.TARGET }}
+          path: signed
+          retention-days: 7
+          if-no-files-found: error
+
+  publish:
+    name: publish the release
+    needs: [verify, sign-macos, sign-windows]
+    runs-on: ubuntu-24.04
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ env.TAG }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: verified-${{ env.TAG }}
+          path: candidate
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: signed-*
+          path: signed
+          merge-multiple: true
+      - name: Release notes — the changelog section and how to verify a download
+        run: |
+          set -euo pipefail
+          awk -v v="$VERSION" '
+            $0 ~ "^## \\[" v "\\]" { on = 1; next }
+            on && /^## \[/ { exit }
+            on { print }
+          ' CHANGELOG.md > "${RUNNER_TEMP}/changes.md"
+          [ -s "${RUNNER_TEMP}/changes.md" ] || { echo "::error::CHANGELOG.md has no section for ${VERSION}"; exit 1; }
+          {
+            cat "${RUNNER_TEMP}/changes.md"
+            echo
+            echo "## Verify a download"
+            echo
+            echo "Every file carries a GitHub provenance attestation from this repository and a line in SHA256SUMS:"
+            echo
+            echo '```sh'
+            echo "gh attestation verify <file> --repo ${GITHUB_REPOSITORY}"
+            echo 'sha256sum --check --ignore-missing SHA256SUMS'
+            echo '```'
+            echo
+            echo 'macOS and Windows packages are signed by NexaEthos; Linux packages are verified by the attestation alone.'
+            echo "The signing-report-*.json files record which candidate bytes each signed file was made from."
+          } >> notes.md
+      - name: Assemble the release set — Linux as built, macOS and Windows as signed, one stable name per file
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          one() {
+            # Require one source per asset to prevent ambiguous release contents.
+            local matches=()
+            for f in $1; do [ -f "$f" ] && matches+=("$f"); done
+            [ "${#matches[@]}" -eq 1 ] || { echo "::error::expected one file for $1, found ${#matches[@]}"; exit 1; }
+            cp "${matches[0]}" "release/$2"
+            printf '%s\t%s\n' "${matches[0]}" "$2" >> "${RUNNER_TEMP}/sources"
+          }
+          : > "${RUNNER_TEMP}/sources"
+          for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do
+            for bin in nexa-llm-bridge nexa-llm-connector; do one "candidate/cli-${target}/${bin}" "${bin}-${target}"; done
+          done
+          for target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do
+            one "candidate/desktop-${target}/*.deb" "nexa-bridge-${target}.deb"
+            one "candidate/desktop-${target}/*.AppImage" "nexa-bridge-${target}.AppImage"
+          done
+          for target in aarch64-apple-darwin x86_64-apple-darwin; do
+            for bin in nexa-llm-bridge nexa-llm-connector; do one "signed/cli-${target}/${bin}" "${bin}-${target}"; done
+            one "signed/desktop-${target}/*.dmg" "nexa-bridge-${target}.dmg"
+            one "signed/desktop-${target}/*.app.tar.gz" "nexa-bridge-${target}.app.tar.gz"
+          done
+          target=x86_64-pc-windows-msvc
+          for bin in nexa-llm-bridge nexa-llm-connector; do one "signed/cli-${target}/${bin}.exe" "${bin}-${target}.exe"; done
+          one "signed/desktop-${target}/*-setup.exe" "nexa-bridge-${target}-setup.exe"
+          one "signed/desktop-${target}/*.msi" "nexa-bridge-${target}.msi"
+          one "candidate/nexa-bridge-${VERSION}.spdx.json" "nexa-bridge-${VERSION}.spdx.json"
+          one "candidate/candidate.json" "candidate.json"
+          for report in signed/signing-report-*.json; do one "$report" "$(basename "$report")"; done
+      - name: The updater manifest — every updater bundle signed for this version, latest.json naming each one
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for name in TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD; do
+            [ -n "${!name}" ] || { echo "::error::${name} is missing from the release environment"; exit 1; }
+          done
+          updater=(
+            "darwin-aarch64-app=nexa-bridge-aarch64-apple-darwin.app.tar.gz"
+            "darwin-x86_64-app=nexa-bridge-x86_64-apple-darwin.app.tar.gz"
+            "windows-x86_64-nsis=nexa-bridge-x86_64-pc-windows-msvc-setup.exe"
+            "windows-x86_64-msi=nexa-bridge-x86_64-pc-windows-msvc.msi"
+            "linux-x86_64-appimage=nexa-bridge-x86_64-unknown-linux-gnu.AppImage"
+            "linux-aarch64-appimage=nexa-bridge-aarch64-unknown-linux-gnu.AppImage"
+            "linux-x86_64-deb=nexa-bridge-x86_64-unknown-linux-gnu.deb"
+            "linux-aarch64-deb=nexa-bridge-aarch64-unknown-linux-gnu.deb"
+          )
+          base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}"
+          platforms='{}'
+          for entry in "${updater[@]}"; do
+            key=${entry%%=*}
+            asset=${entry#*=}
+            npx --yes "@tauri-apps/cli@${TAURI_CLI}" signer sign --app-version "$VERSION" "release/${asset}" > /dev/null
+            platforms=$(jq --arg key "$key" --arg url "${base}/${asset}" --rawfile signature "release/${asset}.sig" \
+              '. + {($key): {url: $url, signature: ($signature | rtrimstr("\n"))}}' <<<"$platforms")
+            rm "release/${asset}.sig"
+          done
+          jq -n --arg version "$VERSION" --arg pub_date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --rawfile notes "${RUNNER_TEMP}/changes.md" --argjson platforms "$platforms" \
+            '{version: $version, notes: ($notes | sub("^\\s+"; "") | sub("\\s+$"; "")), pub_date: $pub_date, platforms: $platforms}' \
+            > release/latest.json
+          printf '%s\t%s\n' "written by this run: the updater bundles signed for ${VERSION}" "latest.json" >> "${RUNNER_TEMP}/sources"
+      - name: Checksums and the release manifest — asset, source, digest
+        run: |
+          set -euo pipefail
+          cd release
+          find . -maxdepth 1 -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sed 's#  \./#  #' > "${RUNNER_TEMP}/sums"
+          mv "${RUNNER_TEMP}/sums" SHA256SUMS
+          jq -n --arg tag "$TAG" --arg version "$VERSION" --arg commit "${{ needs.verify.outputs.commit }}" \
+            --arg candidate_run "$CANDIDATE_RUN_ID" --arg publish_run "$GITHUB_RUN_ID" \
+            --rawfile sources "${RUNNER_TEMP}/sources" --rawfile sums SHA256SUMS \
+            '{tag: $tag, version: $version, commit: $commit, candidate_run_id: ($candidate_run | tonumber),
+              publish_run_id: ($publish_run | tonumber),
+              assets: ([$sources | split("\n")[] | select(length > 0) | split("\t") | {source: .[0], name: .[1]}]
+                | map(. as $a | {name: $a.name, source: $a.source,
+                    sha256: ($sums | split("\n") | map(select(endswith("  " + $a.name))) | .[0] | split("  ")[0])}))}' \
+            > release-manifest.json
+          { echo "### Release ${TAG}"; echo; echo '```'; cat SHA256SUMS; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Attest the provenance of the published bytes
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: release/*
+      - name: Publish the release with every asset — this job's approval is the last person's word
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [[ "$VERSION" == *-* ]]; then channel=(--prerelease --latest=false); else channel=(--latest); fi
+          gh release create "$TAG" --verify-tag "${channel[@]}" --title "Nexa Bridge ${VERSION}" --notes-file notes.md release/*
+          echo "Release ${TAG} published with $(find release -maxdepth 1 -type f | wc -l) assets." >> "$GITHUB_STEP_SUMMARY"

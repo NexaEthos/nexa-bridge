@@ -1,0 +1,36 @@
+[package]
+name = "nexa-robot"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Robot module: ROS 2 graph → zenoh → governed telemetry/teleobservation. Task-level only; e-stop stays local."
+license.workspace = true
+publish = false
+
+[lib]
+name = "nexa_robot"
+path = "src/lib.rs"
+
+[[bin]]
+name = "nexa-robot"
+path = "src/main.rs"
+
+[features]
+# Feature-gated so the workspace builds without hardware. See docs/wiki/robot.md
+default = []
+zenoh-transport = []
+
+[dependencies]
+figment.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true
+tokio.workspace = true
+thiserror = "2.0.21"
+reqwest.workspace = true
+sha2.workspace = true
+rustls.workspace = true
+getrandom = "0.4.3"
+time = { version = "0.3.55", features = ["formatting", "parsing"] }

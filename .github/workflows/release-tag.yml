@@ -1,0 +1,69 @@
+name: Release tag
+# Wiki: docs/wiki/release.md
+
+on:
+  push:
+    branches: [main]
+    paths: [CHANGELOG.md]
+
+concurrency:
+  group: release-tag
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  detect:
+    name: a version to tag
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: The workspace version has its changelog section and no tag yet
+        id: read
+        run: |
+          set -euo pipefail
+          version=$(cargo metadata --no-deps --locked --format-version 1 \
+            | jq -r '.packages[] | select(.name == "nexa-desktop") | .version')
+          if ! grep -q "^## \[${version}\]" CHANGELOG.md; then
+            echo "${version} has no changelog section yet: nothing to tag" >> "$GITHUB_STEP_SUMMARY"
+          elif [ -n "$(git tag --list "v${version}")" ]; then
+            echo "v${version} is already tagged: nothing to tag" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "version=${version}" >> "$GITHUB_OUTPUT"
+          fi
+
+  tag:
+    name: tag the merge commit
+    needs: detect
+    if: needs.detect.outputs.version != ''
+    runs-on: ubuntu-24.04
+    environment: release
+    env:
+      VERSION: ${{ needs.detect.outputs.version }}
+    steps:
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+      - name: An annotated tag vX.Y.Z on this commit — the push that builds the candidate
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          set -euo pipefail
+          repo="repos/${GITHUB_REPOSITORY}"
+          object=$(gh api "${repo}/git/tags" -f tag="v${VERSION}" -f message="Nexa Bridge ${VERSION}" \
+            -f object="$GITHUB_SHA" -f type=commit --jq .sha)
+          gh api "${repo}/git/refs" -f ref="refs/tags/v${VERSION}" -f sha="$object" > /dev/null
+          echo "Tagged ${GITHUB_SHA} as v${VERSION}; Release candidate builds it." >> "$GITHUB_STEP_SUMMARY"

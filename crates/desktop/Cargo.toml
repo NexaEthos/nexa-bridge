@@ -1,0 +1,56 @@
+[package]
+name = "nexa-desktop"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Tray app that connects your local LLM to the cloud — supervises the bridge and connector as sidecars."
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "nexa-desktop"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2.7.1", features = [] }
+nexa-build-info = { path = "../build-info" }
+
+[dependencies]
+tauri = { version = "2.12.1", features = ["tray-icon"] }
+tauri-plugin-shell = "2.4.1"
+tauri-plugin-single-instance = "2.5.2"
+tauri-plugin-autostart = "2.7.0"
+keyring = "4.2.0"
+# OS entropy for the generated bridge api_key — no PRNG to seed or misuse.
+getrandom = "0.4.3"
+# Loopback probes for local model runtimes. See docs/wiki/desktop.md#runtime-flavors
+reqwest.workspace = true
+rustls.workspace = true
+futures-util.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+# Runtime response parsing and probes use io-util.
+tokio = { workspace = true, features = ["io-util"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true
+sha2.workspace = true
+tauri-plugin-opener = "2.7.0"
+nexa-tunnel-protocol = { path = "../protocol" }
+tauri-plugin-updater = { version = "2.13.1", default-features = false, features = ["rustls-tls"] }
+nexa-robot = { version = "1.0.0-3", path = "../robot" }
+nexa-link = { version = "1.0.0-3", path = "../link" }
+
+# Linux uses the pure Rust Secret Service backend; see docs/wiki/desktop.md.
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "4.2.0", features = ["apple-native-keyring-store"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "4.2.0", features = ["windows-native-keyring-store"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "4.2.0", features = ["zbus-secret-service-keyring-store"] }
+
+# SIGTERM to a sidecar before the kill, without unsafe code. See docs/wiki/desktop.md#sidecar-lifecycle
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.31.3", features = ["signal"] }

@@ -1,0 +1,41 @@
+[workspace]
+resolver = "2"
+members = ["crates/build-info", "crates/protocol", "crates/bridge", "crates/connector", "crates/robot", "crates/desktop", "crates/link"]
+
+[workspace.package]
+version = "1.0.0-3"
+edition = "2024"
+rust-version = "1.96"
+description = "Sovereign LLM hub — a local OpenAI-compatible model reachable from the cloud via a self-hosted reverse tunnel."
+license = "MIT OR Apache-2.0"
+publish = false # distributed via the public repo — not published to crates.io
+
+# Requirements state the version we actually build and test against; Dependabot raises them
+# weekly. See docs/wiki/development.md#dependencies
+[workspace.dependencies]
+tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "signal", "net", "time", "sync", "process"] }
+axum = { version = "0.8.9", features = ["ws"] }
+tower-http = { version = "0.7.1", features = ["trace"] }
+# NO gzip/brotli — they would corrupt SSE passthrough. See docs/wiki/proxy.md
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider", "stream", "http2", "json"] }
+# `ring` installed process-wide at startup; avoids aws-lc's cmake/C build. See docs/wiki/auth-and-security.md
+rustls = { version = "0.23.45", default-features = false, features = ["ring"] }
+tokio-tungstenite = { version = "0.30.0", features = ["connect", "rustls-tls-webpki-roots"] }
+futures-util = "0.3.34"
+bytes = "1.12.1"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json", "fmt"] }
+figment = { version = "0.10.19", features = ["env", "toml"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+anyhow = "1.0.104"
+sha2 = "0.11.0"
+subtle = "2.6.1"
+# In-memory GCRA limiter, off unless configured. See docs/wiki/configuration.md
+governor = "0.10.4"
+
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1
+panic = "abort"

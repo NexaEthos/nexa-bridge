@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Nexa Bridge</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header>
+      <svg class="brand-mark" viewBox="0 0 100 100" fill="none" aria-hidden="true">
+        <rect x="3" y="3" width="94" height="94" rx="24" fill="#1C1B19" />
+        <path d="M29 73 L35 28 L71 73" stroke="#FDFCF9" stroke-width="11" stroke-linecap="round" stroke-linejoin="round" />
+        <rect x="63.5" y="22" width="13" height="20" rx="6.5" fill="#B07DA6" />
+      </svg>
+      <div class="brand-copy">
+        <h1>Nexa Bridge</h1>
+        <div class="connection-status"><span id="dot" class="dot" aria-hidden="true"></span><p id="status-line" role="status">Not connected</p></div>
+      </div>
+    </header>
+
+    <nav class="tabs" aria-label="Bridge sections">
+      <button id="tab-models" class="tab" aria-pressed="true" aria-controls="models-panel">Models</button>
+      <button id="tab-devices" class="tab" aria-pressed="false" aria-controls="devices-panel">Devices</button>
+    </nav>
+    <main>
+      <div id="update" class="info" hidden>
+        <p id="update-text"></p>
+        <details id="update-details" hidden>
+          <summary>What's new</summary>
+          <p id="update-notes" class="notes"></p>
+        </details>
+        <button id="install-update" class="primary">Install and restart</button>
+      </div>
+      <div id="models-panel">
+      <div id="setup-intro" class="setup-intro">
+        <span class="eyebrow">Get connected</span>
+        <h2>Your local model, in Agora.</h2>
+        <p class="hint">Link this computer, choose a loaded model, then confirm where it will be available.</p>
+      </div>
+      <nav id="setup-steps" class="setup-steps" aria-label="Connection setup">
+        <button id="step-1" class="step" aria-current="step" aria-controls="link-step"><span aria-hidden="true">1</span> Link Agora</button>
+        <button id="step-2" class="step" aria-controls="model-step"><span aria-hidden="true">2</span> Choose model</button>
+        <button id="step-3" class="step" aria-controls="review-step"><span aria-hidden="true">3</span> Review</button>
+      </nav>
+      <section id="link-step">
+        <h2 id="link-title" tabindex="-1">Link this computer to Agora</h2>
+        <p class="step-description">We will open your browser. Sign in to Agora, choose the workspace and approve this computer after checking the code.</p>
+        <p id="workspace" class="hint">Link this computer to Agora. Credentials are handled automatically.</p>
+        <label for="computer-label">Computer name</label>
+        <input id="computer-label" type="text" maxlength="80" value="My computer" />
+        <button id="link-agora" class="primary">Connect to Agora</button>
+        <div id="pairing" class="info" hidden>
+          <p>Approve only if this code matches your browser:</p>
+          <strong id="pairing-code"></strong>
+          <p id="pairing-expiry" class="hint"></p>
+          <button id="open-approval" class="ghost">Open approval in browser</button>
+          <button id="cancel-link" class="ghost">Cancel linking</button>
+        </div>
+        <div class="setup-actions"><button id="continue-model" class="ghost">Continue to model</button></div>
+      </section>
+      <section id="model-step" hidden>
+        <h2 id="model-title" tabindex="-1">Choose your local model</h2>
+        <p class="step-description">Open LM Studio, Ollama, llama.cpp or vLLM and start its local server. In LM Studio, load the model you want to use first.</p>
+        <button id="detect" class="primary">Find local models</button>
+        <p class="hint">Bridge checks the usual local server addresses. A custom address can be checked in Advanced.</p>
+        <div id="runtimes" class="found" hidden></div>
+        <div id="runtime-info" class="info" hidden></div>
+        <p id="selection" class="hint" role="status">No model selected. Find local models, then choose one.</p>
+        <div id="guides-panel" hidden>
+          <div class="row">
+            <h3 id="guides-title">Your workspace's models on this computer</h3>
+            <button id="refresh-guides" class="ghost" type="button">Refresh</button>
+          </div>
+          <p class="hint">Your workspace chooses Nexa's presets for this computer in Agora. Serve the exact model ID shown, with the settings below; what your model server loads is up to you.</p>
+          <div id="guides" aria-labelledby="guides-title"></div>
+          <p id="guides-status" class="hint" role="status"></p>
+        </div>
+        <div class="setup-actions">
+          <button id="back-link" class="ghost">Back</button>
+          <button id="continue-review" class="ghost">Review connection</button>
+        </div>
+      </section>
+      <section id="review-step" hidden>
+        <h2 id="review-title" tabindex="-1">Review and connect</h2>
+        <p id="review-description" class="step-description">Check the workspace and model before connecting this computer.</p>
+        <dl class="connection-summary">
+          <dt>Workspace</dt><dd id="review-workspace">Not linked yet</dd>
+          <dt>Computer</dt><dd>This computer</dd>
+          <dt>Model</dt><dd id="review-model">Not selected yet</dd>
+          <dt>Workspace preset</dt><dd id="review-preset">None chosen for this computer yet</dd>
+        </dl>
+        <p id="review-guidance" class="hint" role="status"></p>
+        <div class="setup-actions">
+          <button id="toggle" class="primary" disabled>Connect</button>
+          <button id="edit-model" class="ghost">Change model</button>
+          <button id="edit-workspace" class="ghost">Workspace settings</button>
+        </div>
+        <p id="connected-guidance" class="hint" hidden>In Agora, open Settings → Bridge to find this computer and its model. You can then assign the model to an agent in that workspace.</p>
+      </section>
+      <p id="next-step" class="hint" role="status"></p>
+      <section class="advanced-settings">
+        <input id="show-advanced" type="checkbox" aria-controls="advanced" />
+        <label for="show-advanced"><strong>Show advanced settings</strong><span class="hint">Server addresses and startup.</span></label>
+        <div id="advanced" class="advanced-options">
+        <section>
+        <h2>Custom model server</h2>
+        <label for="upstream">Model server address</label>
+        <div class="row">
+          <input id="upstream" type="text" spellcheck="false" placeholder="http://127.0.0.1:11434" />
+          <button id="detect-address" class="ghost">Check address</button>
+        </div>
+        <p class="hint">Use only the scheme, host and port, without <code>/v1</code>. Checking an address shows its models in step 2.</p>
+        </section>
+        <section>
+        <h2>Agora deployment</h2>
+        <label for="agora-url">Agora API origin</label>
+        <input id="agora-url" type="url" spellcheck="false" placeholder="https://agora.example.com" />
+        <p class="hint">Normally supplied by your Agora installer. Change only to link a different trusted deployment.</p>
+        <label for="approval-url">Browser approval origin</label>
+        <input id="approval-url" type="url" spellcheck="false" placeholder="Same origin as the API" />
+        <p class="hint">Leave empty for a same-origin deployment. For a split deployment, enter the explicitly trusted web application origin.</p>
+        </section>
+
+      <section>
+        <h2>Local preferences</h2>
+        <label for="listen">Bridge listen address</label>
+        <input id="listen" type="text" spellcheck="false" placeholder="127.0.0.1:8088" />
+        <p class="hint">Loopback by design — only the connector on this machine reaches it.</p>
+
+        <label class="check">
+          <input id="autostart" type="checkbox" />
+          <span>Start on login</span>
+        </label>
+        <div class="setup-actions">
+          <button id="save" class="primary">Save settings</button>
+          <span id="saved" class="saved" role="status" hidden>Saved</span>
+        </div>
+        <p class="hint">Connect also saves your changes automatically.</p>
+      </section>
+        </div>
+      </section>
+
+      </div>
+      <div id="devices-panel" hidden>
+        <section class="device-intro">
+          <span class="eyebrow">Your hardware, your workspace</span>
+          <h2>Connect a device</h2>
+          <p>Bring real observations into Agora. Choose a local Arduino Q board, or set up ROS 2 on its own host.</p>
+          <span class="badge">Observation only</span>
+        </section>
+        <section class="device-setup">
+          <div class="section-heading"><h2>Arduino Q · USB</h2><button id="hardware-scan" class="ghost">Find boards</button></div>
+          <p class="hint">UNO Q diagnostics are supported. VENTUNO Q still needs hardware acceptance. Requires Android Platform Tools (adb) on this computer's PATH.</p>
+          <label for="hardware-serial">USB device</label>
+          <select id="hardware-serial"><option value="">Find boards, then select one explicitly</option></select>
+          <p id="hardware-inventory-note" class="hint" role="status"></p>
+          <button id="hardware-inspect" class="ghost" disabled>Inspect locally</button>
+          <div id="hardware-snapshot" class="info" hidden></div>
+          <details class="hardware-link-details">
+            <summary>Connect this board to Agora</summary>
+            <label for="hardware-api">Agora API origin</label>
+            <input id="hardware-api" type="url" placeholder="https://api.example.com" spellcheck="false" />
+            <label for="hardware-approval">Browser approval origin</label>
+            <input id="hardware-approval" type="url" placeholder="https://agora.example.com" spellcheck="false" />
+            <label for="hardware-label">Asset name</label>
+            <input id="hardware-label" type="text" placeholder="workshop/board-1" />
+            <p class="hint">Approve the board and workspace in your browser. Only Linux uptime, memory and router diagnostics are sent; no pin control or firmware changes.</p>
+            <button id="hardware-pair" class="primary" disabled>Connect board</button>
+          </details>
+        </section>
+        <section>
+          <div class="section-heading"><h2>Your linked boards</h2><button id="hardware-refresh" class="ghost">Refresh</button></div>
+          <p class="hint">The last receipt confirms delivery. It does not mean the board is online now. Agora determines online status from recent heartbeats.</p>
+          <div id="hardware-cards" class="device-cards"></div>
+          <p id="hardware-error" class="error" role="alert" hidden></p>
+        </section>
+        <section class="ros-guide">
+          <span class="eyebrow">Runs on your robot host</span>
+          <h2>ROS 2 · Battery observations</h2>
+          <p>Use the <code>nexa-robot</code> CLI on a Linux host with ROS 2 installed. This Mac does not read a remote ROS graph.</p>
+          <ol>
+            <li>Build <code>nexa-robot</code> from the matching Bridge source on the ROS host: <code>cargo build --release --locked -p nexa-robot</code>. Use <code>target/release/nexa-robot</code> below or add that directory to your PATH.</li>
+            <li>Source your ROS environment and check one local voltage reading.</li>
+            <li>Pair that host in your browser, then send an observation to the approved workspace.</li>
+          </ol>
+          <details><summary>Host commands and supported reading</summary>
+            <p class="hint">Replace the example origins, state path and workspace with your deployment. Run these commands on the ROS host.</p>
+            <pre><code>source /opt/ros/jazzy/setup.bash
+nexa-robot inspect-ros-battery
+mkdir -m 700 "$HOME/.nexa-hardware"
+nexa-robot pair-ros-battery \
+  "$HOME/.nexa-hardware/robot.json" \
+  https://api.example.com https://agora.example.com \
+  "workshop/robot/battery"
+# Approve the endpoint in your browser first.
+nexa-robot observe \
+  "$HOME/.nexa-hardware/robot.json" my-workspace</code></pre>
+            <p class="hint">Reads only <code>/battery</code>, <code>sensor_msgs/msg/BatteryState.voltage</code>. No continuous ROS streaming, camera feeds, remote shell or actuator commands. The host CLI sends one observation per invocation.</p>
+          </details>
+        </section>
+      </div>
+      <p id="error" class="error" role="alert" hidden></p>
+    </main>
+
+    <aside class="about" aria-label="Application information">
+      <div class="utility-actions">
+        <button id="diagnostics" class="ghost">Save diagnostics</button>
+        <button id="check-update" class="ghost">Check for updates</button>
+      </div>
+      <p id="diagnostics-note" class="hint" role="status"></p>
+      <p id="update-note" class="hint" role="status"></p>
+      <p id="build" class="hint"></p>
+    </aside>
+
+    <dialog id="hardware-confirm" aria-labelledby="hardware-confirm-title">
+      <form method="dialog">
+        <h2 id="hardware-confirm-title">Confirm hardware action</h2>
+        <p id="hardware-confirm-text"></p>
+        <div class="device-actions">
+          <button class="ghost" value="cancel" autofocus>Cancel</button>
+          <button class="primary" value="confirm">Confirm</button>
+        </div>
+      </form>
+    </dialog>
+    <script src="app.js"></script>
+    <script src="hardware.js"></script>
+  </body>
+</html>

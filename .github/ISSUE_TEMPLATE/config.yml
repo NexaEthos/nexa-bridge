@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/NexaEthos/nexa-bridge/blob/main/SECURITY.md
+    about: Never in a public issue — SECURITY.md says where to write.
+  - name: Documentation
+    url: https://github.com/NexaEthos/nexa-bridge/tree/main/docs/wiki
+    about: The wiki is the documentation; check it before asking.

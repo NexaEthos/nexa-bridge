@@ -1,0 +1,12 @@
+# User-approved: verified transitive version splits; see docs/wiki/development.md for the dependency paths.
+allowed-duplicate-crates = [
+  "base64", "bitflags", "block-buffer", "cpufeatures", "crypto-common", "digest",
+  "dirs", "getrandom", "heck", "indexmap", "jni", "jni-sys", "png",
+  "proc-macro-crate", "r-efi", "schemars", "serde_spanned", "sha2",
+  "syn", "thiserror", "thiserror-impl", "toml", "toml_datetime", "toml_edit", "tower-http", "webpki-roots",
+  "winnow",
+  "windows-core", "windows-link", "windows-result", "windows-strings", "windows-sys",
+  "windows-targets", "windows_aarch64_gnullvm", "windows_aarch64_msvc", "windows_i686_gnu",
+  "windows_i686_gnullvm", "windows_i686_msvc", "windows_x86_64_gnu", "windows_x86_64_gnullvm",
+  "windows_x86_64_msvc",
+]

@@ -1,0 +1,21 @@
+[Unit]
+Description=nexa-llm-bridge — local auth+streaming proxy in front of vLLM
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/nexa-llm-bridge/bridge.env
+ExecStart=%h/nexa-bridge/target/release/nexa-llm-bridge
+Restart=always
+RestartSec=3
+# Hardening. NoNewPrivileges is always safe; the namespace-based directives below need
+# unprivileged user namespaces in the user manager — uncomment after `systemctl --user
+# start` succeeds with them on your distro.
+NoNewPrivileges=true
+#PrivateTmp=true
+#ProtectSystem=strict
+#ProtectHome=read-only
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,19 @@
+[package]
+name = "nexa-link"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "The managed link to Agora shared by the desktop and the server setup: pairing, guides, model publication, runtime detection."
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+futures-util.workspace = true
+getrandom = "0.4.3"
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tokio.workspace = true
+tracing.workspace = true

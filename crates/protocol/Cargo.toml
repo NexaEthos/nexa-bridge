@@ -1,0 +1,14 @@
+[package]
+name = "nexa-tunnel-protocol"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Wire frames for the nexa reverse tunnel (relay <-> connector)."
+license.workspace = true
+publish = false
+
+[dependencies]
+bytes.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true

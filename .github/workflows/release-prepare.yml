@@ -1,0 +1,157 @@
+name: Release prepare
+# Wiki: docs/wiki/release.md
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "The version to release (X.Y.Z or X.Y.Z-N, N at most 65535)"
+        required: true
+        type: string
+
+concurrency:
+  group: release-prepare
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  VERSION: ${{ inputs.version }}
+  CARGO_EDIT: "0.13.13"
+
+jobs:
+  files:
+    name: write the release files
+    runs-on: ubuntu-24.04
+    outputs:
+      base: ${{ steps.base.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable branch
+        with:
+          toolchain: stable
+      - name: The version is new — no tag, no changelog section — and Unreleased has content
+        id: base
+        run: |
+          set -euo pipefail
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-(0|[1-9][0-9]{0,4}))?$ ]] || { [[ "$VERSION" == *-* ]] && (( ${VERSION#*-} > 65535 )); }; then
+            echo "::error::${VERSION} is not X.Y.Z or X.Y.Z-N with N at most 65535, the only pre-release a Windows MSI carries"; exit 1
+          fi
+          [ -z "$(git tag --list "v${VERSION}")" ] || { echo "::error::v${VERSION} is already tagged"; exit 1; }
+          ! grep -q "^## \[${VERSION}\]" CHANGELOG.md || { echo "::error::CHANGELOG.md already has ${VERSION}"; exit 1; }
+          awk '/^## \[Unreleased\]/ { on = 1; next } on && /^## \[/ { exit } on && NF { found = 1 } END { exit !found }' CHANGELOG.md \
+            || { echo "::error::the Unreleased section of CHANGELOG.md is empty"; exit 1; }
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: The workspace version and the lock file
+        run: |
+          set -euo pipefail
+          current=$(cargo metadata --no-deps --locked --format-version 1 | jq -r '.packages[] | select(.name == "nexa-desktop") | .version')
+          if [ "$current" != "$VERSION" ]; then
+            cargo install cargo-edit --version "$CARGO_EDIT" --locked --no-default-features --features set-version
+            cargo set-version --workspace "$VERSION"
+            cargo update --workspace
+          fi
+          cargo metadata --no-deps --locked --format-version 1 \
+            | jq -e --arg v "$VERSION" '[.packages[].version] | all(. == $v)' > /dev/null \
+            || { echo "::error::not every workspace package carries ${VERSION}"; exit 1; }
+      - name: The desktop and connector manifests only follow their internal dependency versions
+        run: |
+          python3 - <<'PY'
+          import copy
+          import os
+          import pathlib
+          import subprocess
+          import tomllib
+
+          internal = {"crates/desktop/Cargo.toml": ["nexa-robot", "nexa-link"], "crates/connector/Cargo.toml": ["nexa-link"]}
+          for path, names in internal.items():
+              before = tomllib.loads(subprocess.check_output(["git", "show", f"HEAD:{path}"], text=True))
+              after = tomllib.loads(pathlib.Path(path).read_text())
+              expected = copy.deepcopy(before)
+              for name in names:
+                  expected["dependencies"][name]["version"] = os.environ["VERSION"]
+              if after != before and after != expected:
+                  raise SystemExit(f"::error::unexpected change in {path}; only {', '.join(names)} may follow the release")
+          PY
+      - name: The changelog section — Unreleased becomes the version, dated today
+        run: |
+          set -euo pipefail
+          awk -v v="$VERSION" -v d="$(date -u +%F)" '
+            /^## \[Unreleased\]/ && !done { print; print ""; print "## [" v "] - " d; done = 1; next }
+            { print }
+          ' CHANGELOG.md > "${RUNNER_TEMP}/CHANGELOG.md"
+          mv "${RUNNER_TEMP}/CHANGELOG.md" CHANGELOG.md
+          changed=$(git diff --name-only | LC_ALL=C sort | tr '\n' ' ')
+          case "$changed" in
+            "CHANGELOG.md "|"CHANGELOG.md Cargo.lock Cargo.toml "|"CHANGELOG.md Cargo.lock Cargo.toml crates/connector/Cargo.toml crates/desktop/Cargo.toml ") ;;
+            *) echo "::error::unexpected changes: ${changed}"; exit 1 ;;
+          esac
+          git diff --stat
+          mkdir -p "${RUNNER_TEMP}/files/crates/desktop" "${RUNNER_TEMP}/files/crates/connector"
+          cp Cargo.toml Cargo.lock CHANGELOG.md "${RUNNER_TEMP}/files/"
+          cp crates/desktop/Cargo.toml "${RUNNER_TEMP}/files/crates/desktop/"
+          cp crates/connector/Cargo.toml "${RUNNER_TEMP}/files/crates/connector/"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-files
+          path: ${{ runner.temp }}/files
+          retention-days: 1
+          if-no-files-found: error
+
+  pull-request:
+    name: open the release pull request
+    needs: files
+    runs-on: ubuntu-24.04
+    environment: release
+    env:
+      BASE: ${{ needs.files.outputs.base }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-files
+          path: files
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+      - name: One commit on release/vX.Y.Z through the API, then the pull request
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          set -euo pipefail
+          branch="release/v${VERSION}"
+          repo="repos/${GITHUB_REPOSITORY}"
+          tree=$(gh api "${repo}/git/commits/${BASE}" --jq .tree.sha)
+          entries='[]'
+          for path in Cargo.toml Cargo.lock CHANGELOG.md crates/desktop/Cargo.toml crates/connector/Cargo.toml; do
+            blob=$(jq -n --rawfile content "files/${path}" '{content: $content, encoding: "utf-8"}' \
+              | gh api "${repo}/git/blobs" --input - --jq .sha)
+            entries=$(jq --arg path "$path" --arg sha "$blob" '. + [{path: $path, mode: "100644", type: "blob", sha: $sha}]' <<<"$entries")
+          done
+          tree=$(jq -n --arg base "$tree" --argjson tree "$entries" '{base_tree: $base, tree: $tree}' \
+            | gh api "${repo}/git/trees" --input - --jq .sha)
+          commit=$(jq -n --arg message "chore(release): v${VERSION}" --arg tree "$tree" --arg parent "$BASE" \
+            '{message: $message, tree: $tree, parents: [$parent]}' | gh api "${repo}/git/commits" --input - --jq .sha)
+          gh api "${repo}/git/refs" -f ref="refs/heads/${branch}" -f sha="$commit" > /dev/null
+          awk -v v="$VERSION" '$0 ~ "^## \\[" v "\\]" { on = 1; next } on && /^## \[/ { exit } on { print }' files/CHANGELOG.md > notes.md
+          {
+            echo
+            echo "---"
+            echo
+            echo "Merging this pull request starts **Release tag**, which tags the merge commit \`v${VERSION}\` once the"
+            echo "\`release\` environment approves it; the tag builds the candidate. See docs/wiki/release.md."
+          } >> notes.md
+          url=$(gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$branch" --title "chore(release): v${VERSION}" --body-file notes.md)
+          echo "Release pull request: ${url}" >> "$GITHUB_STEP_SUMMARY"

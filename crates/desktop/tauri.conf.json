@@ -1,0 +1,66 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Nexa Bridge",
+  "identifier": "ai.nexaethos.bridge.desktop",
+  "build": {
+    "frontendDist": "ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "panel",
+        "title": "Nexa Bridge",
+        "width": 560,
+        "height": 800,
+        "minWidth": 460,
+        "minHeight": 480,
+        "resizable": true,
+        "theme": "Light",
+        "visible": false,
+        "focus": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'"
+    },
+    "trayIcon": {
+      "id": "main",
+      "iconPath": "icons/tray.png",
+      "iconAsTemplate": true,
+      "menuOnLeftClick": false
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDA1MzJDMTg1OEE5M0FGQTQKUldTa3I1T0toY0V5QmVRb2d4V3JCOE9jZTljL0Y5RG1KQXpHTkNuZGd6T1pmRGU1a3Rqa0p2cG4K",
+      "endpoints": [
+        "https://github.com/NexaEthos/nexa-bridge/releases/latest/download/latest.json"
+      ],
+      "requireSignedVersion": true,
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "DeveloperTool",
+    "shortDescription": "Connect your local LLM to the cloud.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "externalBin": [
+      "binaries/nexa-llm-bridge",
+      "binaries/nexa-llm-connector"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "10.15"
+    }
+  }
+}

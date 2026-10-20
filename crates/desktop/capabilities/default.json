@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The panel only talks to the Rust side. Sidecars are spawned from Rust, so no shell permission is exposed to the webview.",
+  "windows": ["panel"],
+  "permissions": ["core:default"]
+}

@@ -1,0 +1,10 @@
+[package]
+name = "nexa-build-info"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Build-script helper: the build block (commit, target, profile, declared channel) as rustc-env values."
+license.workspace = true
+publish = false
+
+[dependencies]

@@ -1,0 +1,28 @@
+[Unit]
+# Reference vLLM unit for a dedicated GPU box — EDIT the model + flags for your hardware.
+# This is the upstream the bridge proxies to, so `/_node/logs?unit=vllm` tails this journal.
+# See docs/wiki/deployment.md
+Description=vLLM OpenAI-compatible server on :8000
+Before=nexa-llm-bridge.service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Model load + tensor-parallel init takes minutes; don't let systemd kill it as "timed out".
+TimeoutStartSec=900
+# NCCL + TP workers open far more descriptors than the 1024 login default.
+LimitNOFILE=1048576
+Environment=HOME=%h
+Environment=PATH=%h/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# Serve from the local HF cache — no network fetch at start.
+Environment=HF_HUB_OFFLINE=1
+ExecStart=%h/.venv/bin/vllm serve <your-org/your-model> \
+  --tensor-parallel-size <n-gpus> --gpu-memory-utilization 0.95 \
+  --max-model-len <context-length> --enable-prefix-caching --enable-chunked-prefill \
+  --max-num-seqs <concurrency> --max-num-batched-tokens 8192
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target
