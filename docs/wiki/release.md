@@ -1,28 +1,35 @@
 # Release — from a version to a signed, published build
 
-Five workflows, one build, every privileged step approved by a person. A release starts as a **pull
-request** that names the version; its merge is **tagged**; the tag builds a **candidate** once, attested by
-GitHub and verified by people on their machines; the candidate is then **promoted** by digest: signed on
-macOS and Windows, re-attested, given an updater manifest and published. Nothing is recompiled after the
-tag; nothing privileged runs until the environment `release` approves it.
+Five workflows, one build, **two release approvals: signing and publication**. A release starts as a
+reviewed **pull request** that names the version; its merge is **tagged** automatically; the tag builds a
+**candidate** once, attested by GitHub and verified by people on their machines. Automated verification
+precedes signing. The verified candidate is then **promoted** by digest: signed on macOS and Windows,
+re-attested, given an updater manifest and published. Nothing is recompiled after the tag.
 
 ## The flow
 
 ```text
-Release prepare (workflow_dispatch: X.Y.Z) ─► pull request release/vX.Y.Z ─► review, CI, merge
-   files written without secrets · ✋ the commit and the PR                         │
-                                                                                   ▼
-Release tag (push to main, CHANGELOG.md) ─► ✋ annotated tag vX.Y.Z on the merge commit
-                                                                                   │
-                                                                                   ▼
-Release candidate (the tag push) ─► tag ✓ · native matrix · SBOM · provenance · candidate-vX.Y.Z
-                                                                                   │
-                                                                                   ▼  acceptance on real machines
-Release publish (starts when the candidate is green; or by hand: tag + run id)
-   ✋ ① verify ─► ✋ ② sign macOS / sign Windows ─► ✋ ③ publish: updater manifest, release
+Release prepare (maintainer dispatch: X.Y.Z) ─► pull request release/vX.Y.Z ─► review, CI, merge
+   generated files · automatic commit and PR                                          │
+                                                                                     ▼
+Release tag (push to main, CHANGELOG.md) ─► automatic annotated tag on the merge commit
+                                                                                     │
+                                                                                     ▼
+Release candidate (tag push) ─► tag ✓ · native matrix · SBOM · provenance · candidate-vX.Y.Z
+                                                                                     │
+                                                                                     ▼
+Release publish (candidate green; or maintainer dispatch: tag + run id)
+   automatic verification ─► ✋ ① sign macOS / Windows ─► ✋ ② publish release and updater
 ```
 
-✋ is a stop of the environment `release`: its reviewers approve it, and nothing in that job runs before.
+✋ is a stop of the protected environment `release`. Approve the three pending platform-signing jobs
+as one group after real-machine acceptance; approve publication separately after all signatures pass.
+The version PR still requires ordinary review, CI and merge. Those source controls and the initial
+maintainer dispatch are separate from the two release-environment approval rounds.
+
+Preparation and tagging use `release-automation`, an environment restricted to the `main` branch with
+only the release App's credentials and no required reviewer. Read-only candidate verification uses no
+environment. Signing and publication retain the protected `release` environment.
 
 ### 0. The version — [`release-prepare.yml`](../../.github/workflows/release-prepare.yml) and [`release-tag.yml`](../../.github/workflows/release-tag.yml)
 
@@ -35,14 +42,14 @@ changes, renames `## [Unreleased]` into `## [X.Y.Z] - <date>` under a fresh empt
 change outside `Cargo.toml`, `Cargo.lock`, `CHANGELOG.md`, `crates/desktop/Cargo.toml` and
 `crates/connector/Cargo.toml`. The desktop manifest may only follow the new version of its internal `nexa-robot` and
 `nexa-link` dependencies, the connector's only that of `nexa-link`; a semantic comparison rejects other changes. Its
-second job, after the approval, reads those five files, preserving the nested
+second job automatically reads those five files, preserving the nested
 manifest path, and writes **one commit through the GitHub API** (GitHub signs it) on
 `release/vX.Y.Z`, then opens the pull request with the changelog section as its body. The token is the
 **Nexa Bridge Release** GitHub App's, minted for the job: a pull request or a tag made with the workflow's
 own token would start no workflow.
 
 **Release tag** runs on every push to `main` that touches `CHANGELOG.md`. When the workspace version has
-its section and no tag yet, it asks for the approval and creates the annotated tag `vX.Y.Z` on that commit
+its section and no tag yet, it creates the annotated tag `vX.Y.Z` on that reviewed merge commit
 through the API, with the App's token; the tag ruleset lets only maintainers and that App create `v*`
 tags. The tag push starts the candidate.
 
@@ -80,14 +87,16 @@ candidate is built.
 
 Starts by itself when a *Release candidate* run started by a tag push of this repository ends green
 (`workflow_run`), with that run's tag and **run id**; it can also be started by hand (`workflow_dispatch`)
-with the tag and the run id of an earlier candidate. Every job references the environment `release`, so
-the reviewers approve each stop — the first one after the acceptance:
+with the tag and the run id of an earlier candidate. Verification runs automatically with read-only
+permissions and no environment secrets. The reviewers approve signing after acceptance and publication
+after signing; both stages retain the environment `release`:
 
 1. **`verify`** — the run id's head commit is the tag's commit, the run is green, it is a *Release
    candidate* run started by the tag push; the artifact is downloaded **by run id, never rebuilt**;
    `sha256sum --check --strict` over the whole list; `candidate.json` names this tag and this run; every
    file's provenance is verified with `gh attestation verify` against this repository *and* the candidate
-   workflow, every binary's SBOM attestation too. The verified set moves on as a run artifact.
+   workflow, every binary's SBOM attestation too. The verified set moves on as a run artifact. This job
+   cannot sign, publish or mint the release App's token.
 2. **`sign-macos`** (ARM64 and Intel) — the Developer ID identity is imported into a keychain made for the job
    (a bundle macOS cannot read, OpenSSL 3's PBES2 encoding, is re-encoded in the job with a warning; a password
    that opens nothing stops the job with that reason); the compiled bytes are placed where the Tauri bundler reads
@@ -162,24 +171,28 @@ candidate bytes each signed file was made from, and `candidate.json` which run b
   `pull_request_target` anywhere; fork code never runs with credentials.
 - The release workflows run only on a pushed tag (the candidate), on a push to `main` (the tag), when a
   candidate of this repository's own tag push ends green (the publish) or by `workflow_dispatch` by someone
-  with write access (the prepare, the publish). The signing secrets and the App's key exist only in the
-  environment `release`, which its reviewers gate.
+  with write access (the prepare, the publish). The App's key is confined to the main-only
+  `release-automation` environment; signing credentials remain in the reviewed `release` environment.
+  Neither environment admits pull-request refs, tags or non-main branches.
 - A fork can run the same workflows with its own certificates, its own updater key and its own name. The provenance it gets is
   its own repository's, and the name and identifier rules in [the README](../../README.md#official-builds-and-the-name)
   apply.
 
 ## Release environment configuration
 
-The workflow requires these inputs in the protected `release` environment. Provisioning and
-live signing acceptance are separate from the source configuration; missing inputs fail explicitly.
+Create both environments and their branch policies before merging workflows that reference them.
+GitHub otherwise creates missing environments without protection. Both admit only the branch `main`,
+not tags. `release` requires the maintainer reviewer and disables administrator bypass;
+`release-automation` has no required reviewer and contains only the App client id and private key.
+Missing inputs fail explicitly; source configuration alone does not establish the live protections.
 
 | Where | Name | What it is |
 | --- | --- | --- |
 | Repository rules | tag ruleset `v*` | only maintainers and the release App create tags; no deletion, no update |
 | GitHub App | **Nexa Bridge Release** | installed on this repository only, *Contents* and *Pull requests* write; it opens the release pull request and creates the tag |
-| Variable | `RELEASE_APP_CLIENT_ID` | the App's client id |
-| Secret | `RELEASE_APP_PRIVATE_KEY` | the App's private key; whoever holds it can mint the App's tokens, so it lives only in this environment |
-| Environment | `release` | **create it with required reviewers before the first dispatch** — a workflow that references an environment creates it with no protection if it does not exist; the secrets and variables below live on it |
+| `release-automation` variable | `RELEASE_APP_CLIENT_ID` | the App's client id |
+| `release-automation` secret | `RELEASE_APP_PRIVATE_KEY` | the App's private key; restricted to trusted main workflows, never a repository-wide secret |
+| Environment | `release` | main only, required maintainer reviewer, no administrator bypass; the signing secrets and variables below live here |
 | Secret | `APPLE_CERTIFICATE` | the *Developer ID Application* certificate with its key, as a base64 `.p12` |
 | Secret | `APPLE_CERTIFICATE_PASSWORD` | the `.p12` password |
 | Secret | `APPLE_SIGNING_IDENTITY` | the identity string, `Developer ID Application: <name> (<team id>)` |
@@ -188,6 +201,24 @@ live signing acceptance are separate from the source configuration; missing inpu
 | Variable | `AZURE_SIGNING_ENDPOINT` | the account's regional endpoint, e.g. `https://weu.codesigning.azure.net` |
 | Variable | `AZURE_SIGNING_ACCOUNT`, `AZURE_SIGNING_PROFILE` | the signing account and the certificate profile (public trust) |
 | Secret | `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | the updater's minisign private key and its password; the public key is `plugins.updater.pubkey` in `tauri.conf.json` |
+
+### Moving from the five-approval flow
+
+Finish in-flight releases first. Provision `release-automation` with its exact `main` branch policy and
+no required reviewer; copy only `RELEASE_APP_CLIENT_ID` and `RELEASE_APP_PRIVATE_KEY` into it. Read back
+the protection settings and credential names without exposing values, then merge the reviewed workflow
+change. Remove the two App inputs from `release` after confirming no earlier prepare/tag job needs them.
+Apple, Azure, updater inputs and the Azure federation remain unchanged.
+
+The deliberate trust change is that workflows on reviewed `main` can now use the App without a separate
+approval. The App still has only its existing repository installation and Contents/Pull requests rights;
+there is no new main bypass or tag update/delete permission. Protect review of workflow changes as
+carefully as source changes: a main-only environment restricts the ref, not the workflow filename.
+
+Validate the next release by checking that prepare/tag/verify never wait for an environment review,
+that signing waits until its candidate verification has passed, and that publication waits separately
+for the maintainer after all signing jobs succeed. A rollback restores the App inputs to `release`
+and the prior workflow references; it does not modify existing tags or published assets.
 
 Not in this flow: store submissions and a GPG signature for Linux packages.
 
@@ -226,10 +257,14 @@ ambiguous match fails before publication, preserving the candidate-to-release ma
   release is not replaced by a workflow.
 - **No tag without its version.** The tag is made from the workspace version and its changelog section on
   `main`, never typed; the candidate checks both again.
-- **Secrets stay in the environment.** No workflow that a pull request can trigger reads them; no job
-  prints them; the macOS keychain is created for the job and deleted after it.
+- **Secrets stay in their environments.** App automation and artifact signing use separate main-only
+  environments. No workflow that a pull request can trigger reads them; no job prints them; the macOS
+  keychain is created for the job and deleted after it.
 
 ## Changelog
+
+- 2026-10-24 — Reduce release approval rounds to signing and publication; isolate the release App in
+  main-only automation and leave candidate verification read-only without environment access.
 
 - 2026-10-20 — The Windows federation names this repository's id: the repository was born again under
   the same name, so its subject is new.

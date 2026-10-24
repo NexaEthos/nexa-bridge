@@ -111,7 +111,7 @@ jobs:
     name: open the release pull request
     needs: files
     runs-on: ubuntu-24.04
-    environment: release
+    environment: release-automation
     env:
       BASE: ${{ needs.files.outputs.base }}
     steps:
@@ -150,8 +150,8 @@ jobs:
             echo
             echo "---"
             echo
-            echo "Merging this pull request starts **Release tag**, which tags the merge commit \`v${VERSION}\` once the"
-            echo "\`release\` environment approves it; the tag builds the candidate. See docs/wiki/release.md."
+            echo "Merging this reviewed pull request starts **Release tag**, which automatically tags the merge commit"
+            echo "\`v${VERSION}\`; the tag builds the candidate. Signing and publication each need approval. See docs/wiki/release.md."
           } >> notes.md
           url=$(gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$branch" --title "chore(release): v${VERSION}" --body-file notes.md)
           echo "Release pull request: ${url}" >> "$GITHUB_STEP_SUMMARY"
