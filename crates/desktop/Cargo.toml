@@ -38,8 +38,8 @@ sha2.workspace = true
 tauri-plugin-opener = "2.7.0"
 nexa-tunnel-protocol = { path = "../protocol" }
 tauri-plugin-updater = { version = "2.13.1", default-features = false, features = ["rustls-tls"] }
-nexa-robot = { version = "1.0.0", path = "../robot" }
-nexa-link = { version = "1.0.0", path = "../link" }
+nexa-robot = { version = "1.0.1", path = "../robot" }
+nexa-link = { version = "1.0.1", path = "../link" }
 
 # Linux uses the pure Rust Secret Service backend; see docs/wiki/desktop.md.
 [target.'cfg(target_os = "macos")'.dependencies]
