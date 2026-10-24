@@ -37,6 +37,8 @@ restart. Before every Connect the stored relay address and the server's are comp
 Native credential stores use platform-specific backends. Linux uses the pure Rust zbus Secret
 Service implementation rather than the C-library-backed dbus implementation. Runtime probe I/O
 uses the workspace Tokio runtime with `io-util`; response-shape checks are pure parser tests.
+The generated bridge API key uses OS entropy through `getrandom`, with no application-seeded PRNG.
+Loopback runtime probes use `reqwest`; Unix sidecar termination uses `nix` without application unsafe code.
 
 ## Devices panel
 

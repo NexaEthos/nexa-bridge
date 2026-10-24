@@ -18,6 +18,7 @@ cargo clippy --all-targets --all-features --locked -- \
 cargo test --all-targets --all-features --locked
 cargo build --workspace --release --locked
 node --check crates/desktop/ui/app.js
+python3 .github/scripts/verify_glib_backport.py
 cargo deny --all-features --locked check -D warnings
 ```
 
@@ -39,7 +40,8 @@ fails. That is deliberate: every licence is vetted before it ships in a binary.
 ## Native matrix {#native-matrix}
 
 [`.github/workflows/native.yml`](../../.github/workflows/native.yml) runs on every push to `main`, on pull
-requests that touch the crates or the lockfile, and by hand. It is the proof per operating system that the
+requests that touch the crates, vendored source, Cargo configuration, lockfile or backport verifier,
+and by hand. It is the proof per operating system that the
 Ubuntu gate cannot give — the `cfg(unix)` and `cfg(windows)` halves of the supervisor, the musl static
 binaries, the bundles — and it produces the **unsigned** candidate artifacts a release starts from.
 
@@ -63,6 +65,9 @@ compiled bytes travel beside each bundle in `bin/` for that. Official builds car
 **Built is not verified.** A green matrix says the code compiles, the tests pass and the bundle is produced
 on that runner; the acceptance of a platform — the tray, autostart, the keystore, pairing in a browser — is
 recorded in [desktop.md](desktop.md#platform-matrix) only after a person ran it there.
+
+Linux desktop jobs also run the optimized [GLib iterator regression](glib-backport.md) before bundling.
+Checksums use null-delimited paths throughout collection because desktop bundle names can contain spaces.
 
 ## Working from an issue to a pull request
 
@@ -132,10 +137,12 @@ cargo-deny now rejects new duplicate versions rather than merely warning. Its ex
 are maintained separately because its active graph differs from Clippy's full metadata graph.
 The compatibility re-export in webpki-roots is recognized by cargo-deny without an exception.
 
-The existing unmaintained-crate policy checks workspace dependencies; Tauri's Linux GTK3 bindings
+The unmaintained-crate policy checks workspace dependencies; Tauri's Linux GTK3 bindings
 carry upstream unmaintained notices with no safe upgrade. This is distinct from vulnerabilities:
-RUSTSEC vulnerability and yanked-crate checks still cover the entire dependency graph, without ignored IDs.
-The new duplicate exception does not broaden the unmaintained policy.
+vulnerability, yanked-crate and explicitly enabled transitive unsound checks have no ignored IDs.
+The [GLib backport](glib-backport.md) fixes the GTK-compatible dependency and verifies its vendored
+source before the advisory scan; a green scan alone does not verify a local source's content.
+The duplicate exception does not broaden the unmaintained policy.
 
 The existing license list includes the CA bundle's CDLA-Permissive-2.0 data license and MPL-2.0
 dependencies used unmodified by Tauri (cssparser, selectors, dtoa-short and option-ext).

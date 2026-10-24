@@ -21,15 +21,12 @@ tauri-plugin-shell = "2.4.1"
 tauri-plugin-single-instance = "2.5.2"
 tauri-plugin-autostart = "2.7.0"
 keyring = "4.2.0"
-# OS entropy for the generated bridge api_key — no PRNG to seed or misuse.
 getrandom = "0.4.3"
-# Loopback probes for local model runtimes. See docs/wiki/desktop.md#runtime-flavors
 reqwest.workspace = true
 rustls.workspace = true
 futures-util.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-# Runtime response parsing and probes use io-util.
 tokio = { workspace = true, features = ["io-util"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true
@@ -41,7 +38,6 @@ tauri-plugin-updater = { version = "2.13.1", default-features = false, features 
 nexa-robot = { version = "1.0.1", path = "../robot" }
 nexa-link = { version = "1.0.1", path = "../link" }
 
-# Linux uses the pure Rust Secret Service backend; see docs/wiki/desktop.md.
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "4.2.0", features = ["apple-native-keyring-store"] }
 
@@ -51,6 +47,8 @@ keyring = { version = "4.2.0", features = ["windows-native-keyring-store"] }
 [target.'cfg(target_os = "linux")'.dependencies]
 keyring = { version = "4.2.0", features = ["zbus-secret-service-keyring-store"] }
 
-# SIGTERM to a sidecar before the kill, without unsafe code. See docs/wiki/desktop.md#sidecar-lifecycle
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+glib = "=0.18.5"
+
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.31.3", features = ["signal"] }

@@ -1,0 +1,4 @@
+# Wiki: docs/wiki/glib-backport.md
+
+[patch.crates-io]
+glib = { path = "vendor/glib" }

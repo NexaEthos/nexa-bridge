@@ -30,6 +30,7 @@ the explanation stays in one place.
 
 - [Development](development.md) — the CI gate, code conventions, the comment policy.
 - [Dependency version splits](dependency-version-splits.md) — the audited, scoped duplicate-package exception.
+- [GLib backport](glib-backport.md) — the Linux iterator correction, source provenance and regression.
 - [Release review](release-review.md) — the pre-release read of the contract and the desktop: findings,
   verified invariants, build diagnostics, protocol versioning.
 - [Release](release.md) — the version's pull request, the tag, the candidate, the acceptance, the promotion

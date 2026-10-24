@@ -23,6 +23,7 @@
   <a href="#licence"><img src="https://img.shields.io/badge/licence-MIT%20OR%20Apache--2.0-1C1B19" alt="MIT or Apache-2.0"></a>
   <img src="https://img.shields.io/badge/rust-1.96%2B-B07DA6" alt="Rust 1.96 or later">
   <img src="https://img.shields.io/badge/unsafe-forbidden-5B6EAE" alt="unsafe code forbidden">
+  <a href="https://discord.gg/k2cFcM2Kc"><img src="https://img.shields.io/badge/Discord-NexaEthos%20Agora-5865F2?logo=discord&amp;logoColor=white" alt="Join the NexaEthos Agora Discord"></a>
 </p>
 
 <p align="center">
@@ -291,7 +292,7 @@ and published is in [docs/wiki/release.md](docs/wiki/release.md).
 
 Ask in [Discussions](https://github.com/NexaEthos/nexa-bridge/discussions): **Q&A** for how to connect a model server
 or a machine, **Ideas** for what the bridge should do next, **Show and tell** for what you run with it. Issues are for
-bugs. To talk with the team and other users, join the [NexaEthos Agora Discord](https://discord.gg/k2cFcM2Kc).
+bugs.
 
 ## Security
 
