@@ -34,22 +34,28 @@ ended with an error.
 
 `nexa-bridge setup` runs in this order; each step says what it found:
 
-1. **Finds the model server** on the usual local ports (11434, 1234, 8080, 8000, 30000) or at `--upstream`. When none
-   answers yet, the setup goes on: the server can start afterwards.
-2. **Links the server.** It generates the device proof on the server, sends Agora only its SHA-256, and prints the
+1. **Finds or chooses the model server before linking.** It probes the usual local ports (11434, 1234, 8080, 8000,
+   30000), or the address named by `--upstream` or `--runtime`. An explicit runtime uses its own usual address,
+   not another runtime that happens to answer. When none answers, the terminal asks which runtime you will start.
+   Without a terminal, supply `--runtime`; an unanswered choice stops before creating a pairing. A custom upstream
+   may be offline, but must be a credential-free HTTP(S) origin. Pasted `/v1` suffixes are removed.
+2. **Links or resumes the server.** It generates the device proof on the server, sends Agora only its SHA-256, and prints the
    approval link, its code and a QR code. A workspace administrator approves; the code expires in ten minutes and
    works once. The setup then names the approved workspace and asks to confirm it (`--yes` answers).
 3. **Chooses the model.** The choice lists the ids the model server serves and Nexa's presets that carry a local
    guide (`GET /device/catalog`), each marked served now or not yet. The id chosen is the exact id requests will name.
    For one of Nexa's presets the setup prints its guide for this runtime: the window to load, the steps, the flags —
    for vLLM, `--served-model-name <id> --max-model-len <window>` and the rest Nexa wrote.
-4. **Tells the workspace** which id this server serves (`PUT /device/model`), as the desktop does at connect.
+4. **Tells the workspace** which id this server is configured to serve (`PUT /device/model`), as the desktop does at connect.
 5. **Starts the services** (Linux): `nexa-bridge.service` and `nexa-bridge-connector.service` as systemd user units,
    enabled at boot, and asks systemd to keep them running after logout (`loginctl enable-linger`). When that needs an
    administrator, the setup says so and how.
 
 The model server may start before or after the setup. Started after, with the guide's flags, it is served as soon as
 it answers: the bridge lists the selected id only while the model server reports it, and nothing needs running again.
+Setup says **configured**, not **serving**: use `nexa-bridge status` to check the model and the services. It does not
+install or start vLLM, SGLang, Ollama, LM Studio or llama.cpp for you. SGLang is recorded as OpenAI-compatible and
+uses the SGLang or generic OpenAI-compatible guide provided by the selected preset.
 
 Linking the server does not choose its models for the workspace: an administrator picks Nexa's presets on this
 bridge in Agora's model settings (the bridge is named by its connection), as for a desktop.
@@ -71,6 +77,40 @@ Setup options: `--agora`, `--approval` (when the approval page has another origi
 `--upstream`, `--runtime` (`vllm`, `sglang`, `ollama`, `lm-studio`, `llama-cpp`: the server to start later),
 `--model`, `--listen` (default `127.0.0.1:8088`), `--no-service`, `--yes`. Without a terminal no question is asked: a
 choice the flags do not settle stops with the flag that settles it.
+
+## Resuming an interrupted setup
+
+Setup saves its proof together with the Agora and approval origins before requesting enrollment. After Agora
+returns the approval link, it saves that link too. Running setup again keeps the same device and checks its status:
+
+- An approved device resumes even after the original ten-minute approval window. That expiry applies only to an
+  unapproved request; it is not a credential lifetime.
+- A pending request shows the original approval page again. If an interrupted request never returned a link,
+  complete the original browser page if available, or wait for that request to expire before retrying.
+- A network or service error retains the proof. A definitive authorization/expiry refusal clears the unusable
+  pending state and tells you to run setup again. No failed request silently creates a replacement device.
+- A different Agora or approval origin cannot reuse the saved proof. Resume with the original addresses; to
+  deliberately change workspaces, revoke the old device in Agora, then use `nexa-bridge unlink` and set up again.
+- The pending record remains until model publication and local configuration finish. If either publication or
+  service installation fails after `server.json` is written, setup retries completion with the same device and
+  credential, rather than treating the incomplete setup as a successful software update.
+
+### Recovering a proof left by version 1.0.0
+
+Version 1.0.0 could stop after browser approval when no model server answered and no runtime was specified. Its
+`pending-proof` file has no origin metadata. With a build containing the recovery fix, explicitly supply the **same
+Agora origin where you approved the device**:
+
+```sh
+nexa-bridge setup --agora https://agora.nexaethos.com --runtime vllm
+```
+
+For another deployment use its original HTTPS origin, and its original `--approval` when different. The recovery
+reads the existing proof locally and queries that origin; only an `active` device is adopted. An unapproved proof
+is retained so you can finish the original approval. A refusal also retains the unbound proof: the supplied origin
+may be wrong. Check the original address first; if it is correct, use `nexa-bridge unlink` and set up again.
+Never paste the proof into a command, browser, support ticket or chat. Do not repeat the old
+installer to recover it: the old setup replaces the proof with a new pairing.
 
 ## Pool {#pool}
 
@@ -97,12 +137,22 @@ owner-only (0600) through a temporary file renamed into place:
 - `server.json` — the link without a secret: Agora, workspace, connection, device id, relay, model, runtime;
 - `bridge.env` — the bridge's settings with the local key between connector and bridge;
 - `connector.env` — the relay, the device proof as the tunnel bearer, managed authentication on, the local key;
-- `pending-proof` — only while an approval is pending;
+- `pending-pairing.json` — the proof, its Agora/approval origins and the approval link when received; retained until
+  setup completes, including after browser approval;
+- `pending-proof` — the unbound proof left by an interrupted 1.0.0 setup; imported only through explicit-origin recovery;
 - `pool.json` and `config.toml` — only with a pool: its members with their keys, and the bridge's routes written from
   them ([#pool](#pool)).
 
 The proof never appears on a command line, in the shell's history or in its environment; systemd reads it from the
 owner-only file. The units run with `NoNewPrivileges=true`.
+Environment files quote and escape every value for systemd's `EnvironmentFile` format. Local commands decode the
+same format when reusing the device proof and local key. A missing file means absent state; unreadable or malformed
+state is an error. Writes flush to a temporary file and rename it into place. Unlink removes the local state and
+services but does not revoke the cloud device; use Agora to revoke it.
+
+The command parser accepts both `--flag value` and `--flag=value`; positional arguments after a pool action select
+its member. Without a CLI command, the executable keeps its connector behavior. Installed service paths are taken
+from the running executable's directory. Pool mutations reinstall existing units and restart the services.
 
 ## Elsewhere than Linux
 
@@ -110,6 +160,9 @@ The services are systemd units. On another system `--no-service` links and confi
 start the two programs with their files; the desktop app is the way on a personal computer.
 
 ## Changelog
+
+- 2026-10-24: Choose the runtime before enrollment, resume origin-bound pairing and incomplete setup, recover
+  approved 1.0.0 proofs with an explicit origin, and distinguish configuration from live model availability.
 
 - 2026-10-19: `nexa-bridge pool` balances the selected model across several model servers, and
   `nexa-bridge uninstall` (also `install.sh --uninstall`) removes the programs after unlinking.

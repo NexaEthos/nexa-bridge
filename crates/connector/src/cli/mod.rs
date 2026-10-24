@@ -1,6 +1,6 @@
-//! `nexa-bridge`: set a server up, pool model servers, check it, change its model, unlink it.
 //! Wiki: docs/wiki/server-setup.md
 
+mod pairing;
 mod pool;
 mod qr;
 mod service;
@@ -27,18 +27,18 @@ Usage:
   nexa-bridge help              this text
 
 Setup options:
-  --agora <https://…>       your workspace's Agora address (official builds already know it)
+  --agora <https://…>       your workspace's Agora address; required to recover an unbound pending proof
   --approval <https://…>    the browser approval address, when it differs from the Agora address
   --name <name>             how this server appears in Agora (default: its hostname)
   --upstream <address>      the model server's address, when it is not on a usual local port
-  --runtime <name>          the model server you will start: vllm, sglang, ollama, lm-studio, llama-cpp
+  --runtime <name>          model server to use; otherwise detected or chosen before linking
+                            vllm, sglang, ollama, lm-studio, llama-cpp
   --model <exact id>        the model to serve, without asking
   --listen <host:port>      the bridge's local address (default 127.0.0.1:8088)
   --no-service              link and configure only; print how to start the two programs
   --yes                     confirm the workspace without asking
 ";
 
-/// The command a person typed, with its options.
 #[derive(Debug, Default)]
 pub struct Args {
     pub command: String,
@@ -53,7 +53,6 @@ pub struct Args {
     pub key: Option<String>,
     pub max_inflight: Option<usize>,
     pub max_body_bytes: Option<usize>,
-    /// The words after the first positional one: `pool add <url>` keeps the address here.
     pub rest: Vec<String>,
     pub no_service: bool,
     pub yes: bool,
@@ -69,12 +68,10 @@ const COMMANDS: [&str; 7] = [
     "help",
 ];
 
-/// Whether the arguments name a command of the setup rather than the connector's own run.
 pub fn is_command(first: Option<&str>) -> bool {
     first.is_some_and(|word| COMMANDS.contains(&word) || word == "--help" || word == "-h")
 }
 
-/// Read the command and its options; `--flag value` and `--flag=value` both work.
 pub fn parse(words: &[String]) -> Result<Args> {
     let mut args = Args {
         command: words.first().cloned().unwrap_or_default(),
@@ -126,7 +123,6 @@ pub fn parse(words: &[String]) -> Result<Args> {
     Ok(args)
 }
 
-/// Run the command; the connector's own run is untouched when no command is named.
 pub async fn run(words: &[String]) -> Result<()> {
     let args = parse(words)?;
     let term = Term::new();
