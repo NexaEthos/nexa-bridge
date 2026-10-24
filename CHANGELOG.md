@@ -7,6 +7,8 @@ lives in the wiki pages under `docs/wiki/`.
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-24
+
 ### Fixed
 
 - Command-line setup selects and validates the model server runtime before browser approval, including when
