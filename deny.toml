@@ -4,6 +4,7 @@
 version = 2
 yanked = "deny"
 unmaintained = "workspace"
+unsound = "all"
 
 [licenses]
 version = 2
@@ -85,7 +86,7 @@ skip = [
     { name = "winnow", version = "=0.5.40", reason = "User-approved: verified incompatible consumers; see docs/wiki/dependency-version-splits.md" },
 ]
 wildcards = "deny"
-allow-wildcard-paths = true    # ...but internal workspace path-deps (nexa-tunnel-protocol) are fine
+allow-wildcard-paths = true
 
 [sources]
 unknown-registry = "deny"

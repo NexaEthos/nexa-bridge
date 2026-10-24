@@ -75,7 +75,7 @@ posture is in effect.
   provider is shared by `reqwest` and `tokio-tungstenite`.
 - `/_node/*` commands are built **argv-style with no shell**, and `/_node/logs` can only name a unit
   from a configured whitelist. See [node-observability.md](node-observability.md).
-- Supply chain: CI runs `cargo deny check` (advisories, licence allow-list, bans, source allow-list)
+- Supply chain: CI runs `cargo deny check` (including transitive unsound advisories, licence allow-list, bans, source allow-list)
   and `gitleaks` on every change.
 
 ## Trust model summary
