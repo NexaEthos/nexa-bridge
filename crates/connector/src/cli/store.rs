@@ -1,4 +1,4 @@
-//! The server's own files: its link in `server.json`, its secrets in owner-only env files. Wiki: docs/wiki/server-setup.md
+//! Wiki: docs/wiki/server-setup.md
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -9,7 +9,6 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-/// Where the server keeps its link: `$XDG_CONFIG_HOME/nexa-bridge`, else `~/.config/nexa-bridge`.
 pub struct Paths {
     pub dir: PathBuf,
 }
@@ -39,12 +38,10 @@ impl Paths {
         self.dir.join("connector.env")
     }
 
-    /// The pool's members, with their keys: the source the bridge's `config.toml` is written from.
     pub fn pool(&self) -> PathBuf {
         self.dir.join("pool.json")
     }
 
-    /// The bridge's `config.toml`, read from its working directory: the pool's routes.
     pub fn bridge_config(&self) -> PathBuf {
         self.dir.join("config.toml")
     }
@@ -52,9 +49,12 @@ impl Paths {
     pub fn pending(&self) -> PathBuf {
         self.dir.join("pending-proof")
     }
+
+    pub fn pairing(&self) -> PathBuf {
+        self.dir.join("pending-pairing.json")
+    }
 }
 
-/// The non-secret description of the link and of what this server serves.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Server {
     pub agora_url: String,
@@ -85,7 +85,6 @@ impl Server {
     }
 }
 
-/// Write a file only its owner can read, through a temporary file renamed into place.
 pub fn write_private(path: &Path, contents: &str) -> Result<()> {
     let dir = path.parent().context("a private file needs a directory")?;
     let mut builder = fs::DirBuilder::new();
@@ -108,7 +107,6 @@ pub fn write_private(path: &Path, contents: &str) -> Result<()> {
     fs::rename(&temporary, path).with_context(|| format!("cannot replace {}", path.display()))
 }
 
-/// Read a secret file written by [`write_private`]; absent is `None`.
 pub fn read_private(path: &Path) -> Result<Option<String>> {
     match fs::read_to_string(path) {
         Ok(value) => Ok(Some(value.trim().to_string())),
@@ -117,7 +115,6 @@ pub fn read_private(path: &Path) -> Result<Option<String>> {
     }
 }
 
-/// Encode variables for systemd's `EnvironmentFile=`: every value double-quoted and escaped.
 pub fn encode_env(vars: &BTreeMap<&str, String>) -> String {
     let mut out = String::new();
     for (key, value) in vars {
@@ -127,7 +124,6 @@ pub fn encode_env(vars: &BTreeMap<&str, String>) -> String {
     out
 }
 
-/// Read back an env file written by [`encode_env`].
 pub fn decode_env(text: &str) -> BTreeMap<String, String> {
     text.lines()
         .filter_map(|line| line.split_once('='))

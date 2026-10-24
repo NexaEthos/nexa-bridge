@@ -1,24 +1,23 @@
-//! Link a server to a workspace and keep its model and services in step. Wiki: docs/wiki/server-setup.md
+//! Wiki: docs/wiki/server-setup.md
 
 use std::collections::BTreeMap;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
-use nexa_link::agora::{self, PairingEnded};
+use nexa_link::agora;
 use nexa_link::guides::WorkspacePreset;
 use nexa_link::runtimes::{self, Flavor, Runtime};
 use nexa_link::secret;
 
+use super::Args;
+use super::pairing;
 use super::pool;
 use super::service;
 use super::store::{self, Paths, Server};
 use super::term::Term;
-use super::{Args, qr};
 
-const POLL: Duration = Duration::from_secs(5);
 const LISTEN: &str = "127.0.0.1:8088";
+const RUNTIMES: [&str; 5] = ["vllm", "sglang", "ollama", "lm-studio", "llama-cpp"];
 
-/// The guide's runtime keys for a detected flavor; `sglang` is reported as another OpenAI-compatible server.
 const fn guide_keys(flavor: Flavor) -> &'static [&'static str] {
     match flavor {
         Flavor::LmStudio => &["lm-studio"],
@@ -29,7 +28,6 @@ const fn guide_keys(flavor: Flavor) -> &'static [&'static str] {
     }
 }
 
-/// A runtime named on the command line: its flavor and its usual loopback address.
 fn named_runtime(name: &str) -> Result<(Flavor, &'static str)> {
     Ok(match name {
         "vllm" => (Flavor::Vllm, "http://127.0.0.1:8000"),
@@ -38,13 +36,9 @@ fn named_runtime(name: &str) -> Result<(Flavor, &'static str)> {
         "lm-studio" => (Flavor::LmStudio, "http://127.0.0.1:1234"),
         "llama-cpp" => (Flavor::LlamaCpp, "http://127.0.0.1:8080"),
         other => anyhow::bail!(
-            "unknown runtime {other:?}: one of vllm, sglang, ollama, lm-studio, llama-cpp (or give --upstream)"
+            "unknown runtime {other:?}: use vllm, sglang, ollama, lm-studio, llama-cpp, or omit --runtime to detect a running server"
         ),
     })
-}
-
-fn now() -> Result<u64> {
-    Ok(SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs())
 }
 
 fn hostname() -> Result<String> {
@@ -60,11 +54,23 @@ fn hostname() -> Result<String> {
 }
 
 async fn find_runtime(term: &Term, args: &Args) -> Result<Option<Runtime>> {
-    if let Some(upstream) = &args.upstream {
-        return runtimes::probe_one(upstream)
-            .await
-            .map(Some)
-            .map_err(|e| anyhow::anyhow!("{e}"));
+    let named = args.runtime.as_deref().map(named_runtime).transpose()?;
+    let target = args
+        .upstream
+        .as_deref()
+        .map(upstream_origin)
+        .transpose()?
+        .or_else(|| named.map(|(_, address)| address.to_string()));
+    if let Some(target) = target {
+        return match runtimes::probe_one(&target).await {
+            Ok(runtime) => Ok(Some(runtime)),
+            Err(error) => {
+                term.note(&format!(
+                    "{error}; setup can configure a model server you will start later"
+                ))?;
+                Ok(None)
+            }
+        };
     }
     let found = runtimes::detect().await;
     match found.len() {
@@ -82,48 +88,57 @@ async fn find_runtime(term: &Term, args: &Args) -> Result<Option<Runtime>> {
     }
 }
 
-async fn pair(
-    term: &Term,
-    paths: &Paths,
-    origin: &str,
-    approval: &str,
-    label: &str,
-) -> Result<(String, agora::DeviceStatus)> {
-    let proof = secret::generate()?;
-    store::write_private(&paths.pending(), &proof)?;
-    let pairing = agora::start_pairing(origin, approval, label, &proof).await?;
-    term.blank()?;
-    term.line(
-        "Link this server to your workspace. A workspace administrator opens, from any device:",
-    )?;
-    term.line(&format!("  {}", pairing.verification_uri))?;
-    term.line(&qr::render(&pairing.verification_uri)?)?;
-    term.line(&format!(
-        "  code {} · expires in {} minutes",
-        pairing.code,
-        pairing.expires_at.saturating_sub(now()?) / 60
-    ))?;
-    term.progress("Waiting for approval")?;
-    loop {
-        anyhow::ensure!(
-            now()? < pairing.expires_at,
-            "The approval expired. Run the setup again."
-        );
-        tokio::time::sleep(POLL).await;
-        match agora::device_status(origin, &proof).await {
-            Ok(device) if device.status == "pending" => term.tick()?,
-            Ok(device) if device.status == "active" => {
-                term.done("approved")?;
-                return Ok((proof, device));
-            }
-            Ok(_) => anyhow::bail!("This server was not approved. Run the setup again."),
-            Err(error) if error.downcast_ref::<PairingEnded>().is_some() => return Err(error),
-            Err(error) => term.note(&format!("Agora did not answer ({error}); still waiting"))?,
-        }
-    }
+fn upstream_origin(raw: &str) -> Result<String> {
+    let normalized =
+        runtimes::normalize_url(raw).context("give a model server address with --upstream")?;
+    let url = reqwest::Url::parse(&normalized).context("the model server address is invalid")?;
+    anyhow::ensure!(
+        matches!(url.scheme(), "http" | "https")
+            && url.host_str().is_some()
+            && url.username().is_empty()
+            && url.password().is_none()
+            && url.path() == "/"
+            && url.query().is_none()
+            && url.fragment().is_none(),
+        "The model server must be an HTTP(S) origin without credentials, path, query or fragment"
+    );
+    Ok(url.as_str().trim_end_matches('/').to_string())
 }
 
-/// The model this server will serve: a flag, else the person's pick among served ids and Nexa's guided presets.
+fn choose_runtime(
+    term: &Term,
+    args: &Args,
+    detected: Option<&Runtime>,
+) -> Result<(Flavor, String)> {
+    if let Some(name) = &args.runtime {
+        let (flavor, usual) = named_runtime(name)?;
+        let upstream = args
+            .upstream
+            .as_deref()
+            .map(upstream_origin)
+            .transpose()?
+            .unwrap_or_else(|| usual.to_string());
+        return Ok((flavor, upstream));
+    }
+    if let Some(runtime) = detected {
+        return Ok((runtime.flavor, runtime.url.clone()));
+    }
+    let labels = RUNTIMES
+        .iter()
+        .map(|name| (*name).to_string())
+        .collect::<Vec<_>>();
+    term.line("Which model server will you start on this machine?")?;
+    let index = term.choose(&labels, "--runtime vllm|sglang|ollama|lm-studio|llama-cpp")?;
+    let (flavor, usual) = named_runtime(RUNTIMES[index])?;
+    let upstream = args
+        .upstream
+        .as_deref()
+        .map(upstream_origin)
+        .transpose()?
+        .unwrap_or_else(|| usual.to_string());
+    Ok((flavor, upstream))
+}
+
 fn choose_model(
     term: &Term,
     args: &Args,
@@ -177,7 +192,6 @@ fn choose_model(
     Ok(ids[index].clone())
 }
 
-/// Print Nexa's guide for the chosen model and runtime: the window to load, the steps and the flags.
 fn show_guide(term: &Term, preset: &WorkspacePreset, flavor: Option<Flavor>) -> Result<()> {
     term.blank()?;
     term.line(&format!(
@@ -233,7 +247,6 @@ fn write_envs(paths: &Paths, server: &Server, proof: &str, local_key: &str) -> R
     store::write_private(&paths.connector_env(), &store::encode_env(&connector))
 }
 
-/// The device proof and the local key, read back from the owner-only env files.
 fn secrets(paths: &Paths) -> Result<(String, String)> {
     let text = store::read_private(&paths.connector_env())?
         .context("connector.env is missing; unlink and set this server up again")?;
@@ -285,7 +298,6 @@ async fn publish(server: &Server, proof: &str) -> Result<()> {
     .await
 }
 
-/// The directory the running program was installed in, where the services' units point.
 pub(super) fn bin_dir() -> Result<std::path::PathBuf> {
     Ok(std::env::current_exe()?
         .parent()
@@ -293,7 +305,6 @@ pub(super) fn bin_dir() -> Result<std::path::PathBuf> {
         .to_path_buf())
 }
 
-/// A linked server running setup again is an update: the services start again on the programs just installed.
 fn update(term: &Term, paths: &Paths, server: &Server) -> Result<()> {
     let version = env!("CARGO_PKG_VERSION");
     if service::installed() {
@@ -312,10 +323,12 @@ fn update(term: &Term, paths: &Paths, server: &Server) -> Result<()> {
     term.note("`nexa-bridge status` shows the services; `nexa-bridge model <id>` changes the model")
 }
 
-/// `nexa-bridge setup`: find the model server, link the server, choose the model, start the services.
 pub async fn setup(term: &Term, args: &Args) -> Result<()> {
     let paths = Paths::resolve()?;
     if let Some(server) = Server::load(&paths)? {
+        if pairing::unfinished(&paths) {
+            return resume(term, args, &paths, &server).await;
+        }
         return update(term, &paths, &server);
     }
     let origin = agora::origin(
@@ -332,8 +345,31 @@ pub async fn setup(term: &Term, args: &Args) -> Result<()> {
         Some(rt) => term.done(&format!("found {} at {}", rt.label, rt.url))?,
         None => term.line("No model server answers yet: you can start it after this setup.")?,
     }
+    let (flavor, upstream) = choose_runtime(term, args, runtime.as_ref())?;
+    term.line(&format!("Using {} at {upstream}", runtime_name(flavor)))?;
+    if let Some(model) = &args.model {
+        anyhow::ensure!(
+            !model.trim().is_empty()
+                && model.trim() == model
+                && !model.chars().any(char::is_control),
+            "give the exact --model id without surrounding spaces or control characters"
+        );
+    }
+    if let Some(listen) = &args.listen {
+        listen
+            .parse::<std::net::SocketAddr>()
+            .context("--listen must be an IP address and port")?;
+    }
     let label = args.name.clone().map_or_else(hostname, Ok)?;
-    let (proof, device) = pair(term, &paths, &origin, &approval, &label).await?;
+    let (proof, device) = pairing::link(
+        term,
+        &paths,
+        &origin,
+        &approval,
+        &label,
+        args.agora.is_some(),
+    )
+    .await?;
     let tenant = device
         .tenant_slug
         .context("the approved server has no workspace")?;
@@ -354,19 +390,6 @@ pub async fn setup(term: &Term, args: &Args) -> Result<()> {
             Vec::new()
         });
     let model = choose_model(term, args, runtime.as_ref(), &catalog)?;
-    let (flavor, upstream) = match (&runtime, &args.runtime) {
-        (Some(rt), _) => (rt.flavor, rt.url.clone()),
-        (None, Some(name)) => {
-            let (flavor, url) = named_runtime(name)?;
-            (
-                flavor,
-                args.upstream.clone().unwrap_or_else(|| url.to_string()),
-            )
-        }
-        (None, None) => anyhow::bail!(
-            "Name the model server you will start with --runtime vllm|sglang|ollama|lm-studio|llama-cpp"
-        ),
-    };
     if let Some(preset) = catalog.iter().find(|p| p.model == model) {
         show_guide(term, preset, Some(flavor))?;
     }
@@ -389,13 +412,46 @@ pub async fn setup(term: &Term, args: &Args) -> Result<()> {
     let local_key = secret::generate()?;
     write_envs(&paths, &server, &proof, &local_key)?;
     server.save(&paths)?;
-    std::fs::remove_file(paths.pending()).context("cannot remove the pending proof")?;
-    publish(&server, &proof).await?;
+    complete(term, args, &paths, &server, &proof).await
+}
+
+async fn resume(term: &Term, args: &Args, paths: &Paths, server: &Server) -> Result<()> {
+    let (proof, device) = pairing::link(
+        term,
+        paths,
+        &server.agora_url,
+        &server.approval_url,
+        "",
+        false,
+    )
+    .await?;
+    anyhow::ensure!(
+        device.id == server.device_id
+            && device.tenant_slug.as_deref() == Some(server.tenant_slug.as_str())
+            && device.connection_slug.as_deref() == Some(server.connection_slug.as_str()),
+        "The unfinished pairing does not match server.json; check the device in Agora before continuing"
+    );
+    anyhow::ensure!(
+        secrets(paths)?.0 == proof,
+        "The saved credential differs from the unfinished pairing"
+    );
+    complete(term, args, paths, server, &proof).await
+}
+
+async fn complete(
+    term: &Term,
+    args: &Args,
+    paths: &Paths,
+    server: &Server,
+    proof: &str,
+) -> Result<()> {
+    publish(server, proof).await?;
     term.done(&format!(
-        "serving «{}» for workspace «{}»",
+        "configured «{}» for workspace «{}»; `nexa-bridge status` checks whether the model is live",
         server.selected_model, server.tenant_slug
     ))?;
-    finish(term, args, &paths, &server)
+    finish(term, args, paths, server)?;
+    pairing::clear(paths)
 }
 
 fn finish(term: &Term, args: &Args, paths: &Paths, server: &Server) -> Result<()> {
@@ -429,7 +485,6 @@ fn finish(term: &Term, args: &Args, paths: &Paths, server: &Server) -> Result<()
     term.line("Check it any time with `nexa-bridge status`.")
 }
 
-/// `nexa-bridge status`: the link at Agora, the services, the model, and the workspace's presets on this server.
 pub async fn status(term: &Term) -> Result<()> {
     let paths = Paths::resolve()?;
     let server =
@@ -496,7 +551,6 @@ pub async fn status(term: &Term) -> Result<()> {
     Ok(())
 }
 
-/// `nexa-bridge model <id>`: serve another exact id, tell the workspace, restart the services.
 pub async fn model(term: &Term, id: &str) -> Result<()> {
     anyhow::ensure!(
         !id.is_empty() && id.trim() == id && !id.chars().any(char::is_control),
@@ -531,7 +585,6 @@ pub async fn model(term: &Term, id: &str) -> Result<()> {
     Ok(())
 }
 
-/// Rewrite the units and restart the services so the bridge reads its pool again.
 fn reload_services(paths: &Paths) -> Result<()> {
     if service::installed() {
         service::install(paths, &bin_dir()?)?;
@@ -540,7 +593,6 @@ fn reload_services(paths: &Paths) -> Result<()> {
     Ok(())
 }
 
-/// `nexa-bridge pool`: this server's model server and every member, with what the bridge sees of each.
 pub async fn pool_list(term: &Term) -> Result<()> {
     let paths = Paths::resolve()?;
     let server =
@@ -577,7 +629,6 @@ pub async fn pool_list(term: &Term) -> Result<()> {
     Ok(())
 }
 
-/// `nexa-bridge pool add <url>`: balance the selected model across another model server serving the same id.
 pub async fn pool_add(term: &Term, raw: &str, args: &Args) -> Result<()> {
     let paths = Paths::resolve()?;
     let server =
@@ -608,7 +659,6 @@ pub async fn pool_add(term: &Term, raw: &str, args: &Args) -> Result<()> {
     ))
 }
 
-/// `nexa-bridge pool remove <url>`: take a model server out of the pool.
 pub fn pool_remove(term: &Term, raw: &str) -> Result<()> {
     let paths = Paths::resolve()?;
     let server =
@@ -623,7 +673,6 @@ pub fn pool_remove(term: &Term, raw: &str) -> Result<()> {
     ))
 }
 
-/// `nexa-bridge uninstall`: unlink, then remove the three programs from where they were installed.
 pub fn uninstall(term: &Term) -> Result<()> {
     unlink(term)?;
     let dir = bin_dir()?;
@@ -639,7 +688,6 @@ pub fn uninstall(term: &Term) -> Result<()> {
     term.done(&format!("programs removed from {}", dir.display()))
 }
 
-/// `nexa-bridge unlink`: stop the services and forget the link here; the workspace revokes the server in Agora.
 pub fn unlink(term: &Term) -> Result<()> {
     let paths = Paths::resolve()?;
     let server = Server::load(&paths)?;
@@ -661,6 +709,41 @@ pub fn unlink(term: &Term) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn explicit_runtime_works_without_a_model_server_and_normalizes_its_address() -> Result<()> {
+        let mut args = Args {
+            runtime: Some("vllm".into()),
+            ..Args::default()
+        };
+        let term = Term::new();
+        assert_eq!(
+            choose_runtime(&term, &args, None)?,
+            (Flavor::Vllm, "http://127.0.0.1:8000".into())
+        );
+        args.upstream = Some("127.0.0.1:9000/v1/".into());
+        assert_eq!(
+            choose_runtime(&term, &args, None)?,
+            (Flavor::Vllm, "http://127.0.0.1:9000".into())
+        );
+        args.runtime = Some("unknown".into());
+        assert!(choose_runtime(&term, &args, None).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn invalid_upstream_addresses_fail_before_pairing() {
+        for address in [
+            "",
+            "http://user:password@example.com",
+            "https://example.com?key=private",
+            "https://example.com#fragment",
+            "https://example.com/another/path",
+            "ftp://example.com",
+        ] {
+            assert!(upstream_origin(address).is_err(), "{address}");
+        }
+    }
 
     #[test]
     fn a_named_runtime_has_its_usual_address_and_guide_keys() -> Result<()> {
