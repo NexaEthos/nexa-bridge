@@ -95,8 +95,13 @@ depends on compiler optimization of the C output argument.
 The same regression was also run in isolation on macOS ARM64 with Rust 1.99.1 and native GLib
 2.90.1, using the original registry source and then the reviewed path override. The original
 optimized test process terminated with SIGSEGV; the patched test passed. This demonstrates the
-iterator correction, not Linux desktop acceptance. The unmodified upstream crate emits compiler
-style warnings on this toolchain; no lint suppression or unrelated vendor edit is included.
+iterator correction, not Linux desktop acceptance.
+
+The Architect-approved exception to AGENTS.md's zero-output rule applies only to `vendor/glib`:
+Rust 1.99.1 reports 34 existing style/lifetime warnings from the otherwise unchanged upstream
+source, now visible because Cargo treats it as a path dependency. The exception expires when
+this backport is removed. Nexa workspace crates retain `#![deny(warnings)]` and strict Clippy
+with `-D warnings`; no lint suppression or unrelated vendor edit is included.
 
 ## Removing the backport
 
