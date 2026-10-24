@@ -3,6 +3,9 @@ contact_links:
   - name: Questions and help
     url: https://github.com/NexaEthos/nexa-bridge/discussions/categories/q-a
     about: How to connect a model server or a machine — ask in Discussions, where answers stay findable.
+  - name: Chat on Discord
+    url: https://discord.gg/k2cFcM2Kc
+    about: Talk with the team and other users in the NexaEthos Agora Discord.
   - name: Security vulnerability
     url: https://github.com/NexaEthos/nexa-bridge/blob/main/SECURITY.md
     about: Never in a public issue — SECURITY.md says where to write.

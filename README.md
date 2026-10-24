@@ -291,7 +291,7 @@ and published is in [docs/wiki/release.md](docs/wiki/release.md).
 
 Ask in [Discussions](https://github.com/NexaEthos/nexa-bridge/discussions): **Q&A** for how to connect a model server
 or a machine, **Ideas** for what the bridge should do next, **Show and tell** for what you run with it. Issues are for
-bugs.
+bugs. To talk with the team and other users, join the [NexaEthos Agora Discord](https://discord.gg/k2cFcM2Kc).
 
 ## Security
 
