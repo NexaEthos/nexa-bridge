@@ -47,7 +47,7 @@ jobs:
     needs: detect
     if: needs.detect.outputs.version != ''
     runs-on: ubuntu-24.04
-    environment: release
+    environment: release-automation
     env:
       VERSION: ${{ needs.detect.outputs.version }}
     steps:
