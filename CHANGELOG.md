@@ -7,6 +7,20 @@ lives in the wiki pages under `docs/wiki/`.
 
 ## [Unreleased]
 
+### Fixed
+
+- Command-line setup selects and validates the model server runtime before browser approval, including when
+  the model server has not started yet. Invalid local settings are reported before linking the computer.
+- Interrupted command-line setup resumes a valid pending pairing or an already approved connection, avoiding
+  duplicate connections and repeated approvals. The terminal shows the pending approval code again.
+- Recovery of a proof saved by an older interrupted setup requires the original Agora address and preserves
+  the proof if that endpoint rejects it. The error explains how to correct the address or explicitly unlink.
+
+### Security
+
+- Updated `ctutils`, `rustls-webpki`, `webpki-roots` and `webpki-root-certs` to address dependency advisories
+  without relaxing the vulnerability checks.
+
 ## [1.0.0] - 2026-10-20
 
 ### Changed
