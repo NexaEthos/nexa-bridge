@@ -7,6 +7,14 @@ lives in the wiki pages under `docs/wiki/`.
 
 ## [Unreleased]
 
+### Changed
+
+- Presets are operating profiles: Agora sends every request for the exact model this computer serves, with the
+  settings of the preset the workspace chose for the connection, and no preset is matched to the served id. The
+  desktop review and guides show the chosen presets on the served model; the command-line setup chooses among the
+  served models only and names Nexa's operating presets, and `status` and `model` show the presets chosen for the
+  server.
+
 ## [1.0.1] - 2026-10-24
 
 ### Fixed
