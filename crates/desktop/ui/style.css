@@ -646,7 +646,6 @@ dialog::backdrop { background: rgb(0 0 0 / 35%); }
 
 .guide-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 
-.guide-id { display: block; margin: 6px 0; font: 600 13px ui-monospace, monospace; overflow-wrap: anywhere; }
 
 .guide ol, .guide pre { margin: 6px 0 0; }
 
