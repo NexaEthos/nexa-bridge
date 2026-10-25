@@ -57,10 +57,8 @@ function renderSetup() {
     : "Check the workspace and model before connecting this computer.";
   $("review-workspace").textContent = managedMode ? workspaceName : "Not linked yet";
   $("review-model").textContent = selectedModel || "Not selected yet";
-  const chosen = guides.find((guide) => guide.model === selectedModel);
   $("review-preset").textContent = !managedMode ? "Not linked yet"
-    : chosen ? `${chosen.name} · this computer serves its exact ID`
-    : guides.length ? "No preset your workspace chose uses this ID"
+    : guides.length ? `${guides.map((guide) => guide.name).join(", ")} · on the model this computer serves`
     : "None chosen for this computer yet";
   $("review-guidance").textContent = phase === "failed"
     ? "The connection could not stop cleanly. Quit Bridge from the tray, reopen it and review the error before reconnecting. Settings remain available under Advanced."
@@ -365,16 +363,15 @@ function line(tag, className, text) {
 function guideCard(guide) {
   const card = line("div", "guide", "");
   const head = line("div", "guide-head", "");
-  const serving = guide.model === selectedModel;
   head.append(
     line("strong", "", guide.name),
     line("span", "badge", guide.certified ? "certified by Nexa" : "in testing"),
-    line("span", `badge ${serving ? "parallel" : "serialized"}`, serving ? "selected here" : "not selected here"),
   );
-  card.append(head, line("code", "guide-id", guide.model));
-  card.append(line("p", "hint", guide.context_window
-    ? `Serve exactly this ID, with a context window of ${guide.context_window.toLocaleString()} tokens.`
-    : "Serve exactly this ID."));
+  card.append(head);
+  if (guide.context_window) {
+    card.append(line("p", "hint",
+      `Its context window is ${guide.context_window.toLocaleString()} tokens: a longer request is refused by your model server.`));
+  }
   if (guide.guide?.notes) card.append(line("p", "note", guide.guide.notes));
   const runtimes = guide.guide?.runtimes ?? {};
   const keys = runtimeFlavor ? (RUNTIME_GUIDES[runtimeFlavor] ?? []) : Object.keys(runtimes);
@@ -396,14 +393,11 @@ function renderGuides() {
   const box = $("guides");
   clear(box);
   for (const guide of guides) box.append(guideCard(guide));
-  const served = guides.some((guide) => guide.model === selectedModel);
-  $("guides-status").textContent = guidesLoading ? "Loading your workspace's models…"
+  $("guides-status").textContent = guidesLoading ? "Loading your workspace's presets…"
     : guidesError
     || (!guides.length
-      ? "Your workspace has not chosen a model for this computer yet. A workspace administrator chooses Nexa's presets and this connection in Agora's model settings."
-      : selectedModel && !served
-        ? "Your workspace sends requests for the IDs above, and this computer answers only the selected model. Load and select one of them."
-        : "");
+      ? "Your workspace has not chosen a preset for this computer yet. A workspace administrator chooses the operating preset for this connection in Agora's model settings."
+      : "");
 }
 
 async function refreshGuides() {

@@ -139,12 +139,7 @@ fn choose_runtime(
     Ok((flavor, upstream))
 }
 
-fn choose_model(
-    term: &Term,
-    args: &Args,
-    runtime: Option<&Runtime>,
-    catalog: &[WorkspacePreset],
-) -> Result<String> {
+fn choose_model(term: &Term, args: &Args, runtime: Option<&Runtime>) -> Result<String> {
     if let Some(model) = &args.model {
         return Ok(model.clone());
     }
@@ -155,51 +150,37 @@ fn choose_model(
                 .unwrap_or_else(|| rt.models.clone())
         })
         .unwrap_or_default();
-    let mut ids: Vec<String> = served.clone();
-    ids.extend(
-        catalog
-            .iter()
-            .map(|p| p.model.clone())
-            .filter(|id| !served.contains(id)),
-    );
     anyhow::ensure!(
-        !ids.is_empty(),
+        !served.is_empty(),
         "No model to serve: start your model server, or give the exact id with --model"
     );
-    let labels: Vec<String> = ids
+    let labels: Vec<String> = served
         .iter()
-        .map(|id| {
-            let preset = catalog.iter().find(|p| &p.model == id);
-            let status = if served.contains(id) {
-                "served now"
-            } else {
-                "not served yet"
-            };
-            preset.map_or_else(
-                || format!("{id} · {status}"),
-                |p| {
-                    format!(
-                        "{id} · {status} · Nexa preset «{}»{}",
-                        p.name,
-                        if p.certified { ", certified" } else { "" }
-                    )
-                },
-            )
-        })
+        .map(|id| format!("{id} · served now"))
         .collect();
-    term.line("Which model will this server serve? Requests name this exact id.")?;
+    term.line("Which model will this server serve? Nexa sends requests for this exact id.")?;
     let index = term.choose(&labels, "--model <exact id>")?;
-    Ok(ids[index].clone())
+    Ok(served[index].clone())
+}
+
+fn show_operating_presets(term: &Term, catalog: &[WorkspacePreset], model: &str) -> Result<()> {
+    if catalog.is_empty() {
+        return Ok(());
+    }
+    let names: Vec<&str> = catalog.iter().map(|p| p.name.as_str()).collect();
+    term.line(&format!(
+        "Nexa's operating presets: {}. Your workspace chooses one for this server in Agora; Nexa then sends requests for «{model}» with its settings.",
+        names.join(", ")
+    ))
 }
 
 fn show_guide(term: &Term, preset: &WorkspacePreset, flavor: Option<Flavor>) -> Result<()> {
     term.blank()?;
-    term.line(&format!(
-        "Serve exactly «{}» ({})",
-        preset.model, preset.name
-    ))?;
+    term.line(&format!("Operating preset «{}»", preset.name))?;
     if let Some(window) = preset.context_window {
-        term.line(&format!("  context window to load: {window} tokens"))?;
+        term.line(&format!(
+            "  context window it declares: {window} tokens (a longer request is refused by your model server)"
+        ))?;
     }
     let Some(guide) = &preset.guide else {
         return Ok(());
@@ -389,10 +370,8 @@ pub async fn setup(term: &Term, args: &Args) -> Result<()> {
             ));
             Vec::new()
         });
-    let model = choose_model(term, args, runtime.as_ref(), &catalog)?;
-    if let Some(preset) = catalog.iter().find(|p| p.model == model) {
-        show_guide(term, preset, Some(flavor))?;
-    }
+    let model = choose_model(term, args, runtime.as_ref())?;
+    show_operating_presets(term, &catalog, &model)?;
     let server = Server {
         agora_url: origin,
         approval_url: approval,
@@ -479,7 +458,7 @@ fn finish(term: &Term, args: &Args, paths: &Paths, server: &Server) -> Result<()
     }
     term.blank()?;
     term.line(&format!(
-        "Next: a workspace administrator chooses the Nexa preset this server serves in Agora › Settings › Nexa Bridge («{}»).",
+        "Next: a workspace administrator chooses the operating preset for this server in Agora › Settings › Nexa Bridge («{}»).",
         server.connection_slug
     ))?;
     term.line("Check it any time with `nexa-bridge status`.")
@@ -538,14 +517,9 @@ pub async fn status(term: &Term) -> Result<()> {
             .line("presets     none chosen for this server yet (Agora › Settings › Nexa Bridge)");
     }
     for preset in &presets {
-        let mark = if preset.model == server.selected_model {
-            "served"
-        } else {
-            "NOT served here"
-        };
         term.line(&format!(
-            "preset      {} · «{}» · {mark}",
-            preset.name, preset.model
+            "preset      {} · operating preset on «{}»",
+            preset.name, server.selected_model
         ))?;
     }
     Ok(())
@@ -575,11 +549,7 @@ pub async fn model(term: &Term, id: &str) -> Result<()> {
             "every model server of the pool must now serve «{id}» too: `nexa-bridge pool` shows which answer"
         ))?;
     }
-    if let Some(preset) = agora::catalog(&server.agora_url, &proof)
-        .await?
-        .iter()
-        .find(|p| p.model == id)
-    {
+    for preset in &agora::guides(&server.agora_url, &proof).await? {
         show_guide(term, preset, flavor_of(&server).ok())?;
     }
     Ok(())

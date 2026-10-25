@@ -33,18 +33,20 @@ The model list uses the same periodically refreshed snapshot as `/status`, so it
 poll interval rather than promising instantaneous availability. Inference responses remain streamed
 byte-for-byte; rejection happens before upstream routing or in-flight counters are touched.
 
-## Your workspace's models
+## Your workspace's presets
 
-The workspace chooses the Nexa preset this connection serves on Agora's Nexa Bridge page (Settings › Nexa
-Bridge); its model pickers then offer that preset through this connection, and a hop of its model settings may
-also name it. Managed installations read them from `/api/v1/bridge/managed/device/guides` with the device proof
-from the OS credential store: each preset's name, Nexa's certification label, the **exact model id** the
-workspace sends, the context window to load, and Nexa's guide for each runtime (steps and flags for LM Studio,
-Ollama, llama.cpp, vLLM, SGLang or another OpenAI-compatible server). The panel shows the guide of the detected
-runtime, every runtime's before detection, and marks which preset the selected model serves. Nothing is applied
-automatically: the person loads the model under that exact id with those settings, and what the model server
-loads is their responsibility. A selected id no preset uses is allowed but flagged, since the workspace's requests
-name the presets' ids and the bridge answers only the selected one.
+A preset is an **operating profile** — Qwen, Qwen High, Gemma… — that the workspace chooses for this connection on
+Agora's Nexa Bridge page (Settings › Nexa Bridge); its model pickers then offer it through this connection, and a
+hop of its model settings may also name it. Agora sends every request for the **exact model this computer
+serves**, the id it published at connect, with the chosen preset's settings: the preset never names the model on
+the wire, and nothing matches a preset against the served model — which preset fits the model is the person's
+choice and responsibility. Managed installations read the chosen presets from
+`/api/v1/bridge/managed/device/guides` with the device proof from the OS credential store: each preset's name,
+Nexa's certification label, the context window it declares, and Nexa's guide for each runtime (steps and flags for
+LM Studio, Ollama, llama.cpp, vLLM, SGLang or another OpenAI-compatible server). The panel shows the guide of the
+detected runtime, every runtime's before detection. Nothing is applied automatically, and what the model server
+loads is the person's responsibility. A connection that has published no model, or whose computers publish
+different ones, is refused by Agora in words.
 
 Connect publishes the exact served id, the detected runtime and, on LM Studio, the context of the exact loaded
 instance (not the model's advertised maximum) when it can be read; an unreadable context is logged and published
@@ -84,6 +86,7 @@ acceptance, not a new relay deployment or a claim of cross-platform validation.
 
 ## Changelog
 
+- 2026-10-25 — presets are operating profiles: Agora sends the model this computer serves with the chosen preset's settings; the panel no longer matches a preset's id to the selected model.
 - 2026-09-06: Add explicit versioned Agora profile selection, fail-visible catalog refresh and
   loaded-instance context validation. Keep recipes and credentials outside the desktop projection.
 

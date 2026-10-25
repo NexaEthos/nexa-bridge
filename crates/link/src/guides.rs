@@ -36,7 +36,7 @@ pub struct WorkspacePreset {
     pub preset_id: u64,
     /// Its display name.
     pub name: String,
-    /// The exact model id requests name; the runtime must serve this id.
+    /// The model family the preset is an operating profile of; requests name the model the computer serves.
     pub model: String,
     /// The window to load.
     pub context_window: Option<u32>,

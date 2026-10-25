@@ -42,10 +42,10 @@ ended with an error.
 2. **Links or resumes the server.** It generates the device proof on the server, sends Agora only its SHA-256, and prints the
    approval link, its code and a QR code. A workspace administrator approves; the code expires in ten minutes and
    works once. The setup then names the approved workspace and asks to confirm it (`--yes` answers).
-3. **Chooses the model.** The choice lists the ids the model server serves and Nexa's presets that carry a local
-   guide (`GET /device/catalog`), each marked served now or not yet. The id chosen is the exact id requests will name.
-   For one of Nexa's presets the setup prints its guide for this runtime: the window to load, the steps, the flags —
-   for vLLM, `--served-model-name <id> --max-model-len <window>` and the rest Nexa wrote.
+3. **Chooses the model.** The choice lists the ids the model server serves now; the id chosen is the exact id requests
+   will name. The setup then names Nexa's operating presets (`GET /device/catalog`); a workspace administrator
+   chooses one for this server in Agora, and `nexa-bridge model <id>` prints the guides of the presets chosen for it:
+   the window they declare, the steps, the flags Nexa wrote.
 4. **Tells the workspace** which id this server is configured to serve (`PUT /device/model`), as the desktop does at connect.
 5. **Starts the services** (Linux): `nexa-bridge.service` and `nexa-bridge-connector.service` as systemd user units,
    enabled at boot, and asks systemd to keep them running after logout (`loginctl enable-linger`). When that needs an
@@ -161,6 +161,7 @@ start the two programs with their files; the desktop app is the way on a persona
 
 ## Changelog
 
+- 2026-10-25 — the model choice lists the served ids alone; the setup names Nexa's operating presets, and the guides follow the presets the workspace chose, never a match on the model id.
 - 2026-10-24: Choose the runtime before enrollment, resume origin-bound pairing and incomplete setup, recover
   approved 1.0.0 proofs with an explicit origin, and distinguish configuration from live model availability.
 

@@ -358,8 +358,8 @@ Collapsing advanced settings does not discard edits or alter connection permissi
 First setup presents three freely navigable steps: browser approval, local model selection and a
 connection review. Find local models checks the existing usual local ports; Check address in Advanced
 probes only the entered origin. Neither action chooses a model for the person. The review
-shows the managed workspace and connection from native state, the selected model and the workspace preset that
-uses its exact id, if any, and
+shows the managed workspace and connection from native state, the selected model and the operating presets the
+workspace chose for this connection, which run on that model, and
 identifies the host as This computer because the saved state does not retain its pairing label.
 Completed browser approval advances to model selection. A ready saved connection opens a compact
 summary; entering the running state also switches to that summary. Settings remain reachable through
@@ -495,6 +495,7 @@ repository.
 
 ## Changelog
 
+- 2026-10-25 — the review and the guides show the operating presets the workspace chose, on the model this computer serves; no preset is matched to the selected id.
 - 2026-10-20 — The status names the signed releases.
 - 2026-10-19 — Reduced the default window height for scaled laptop displays, aligned native discovery messages with the guided UI and clarified hardware release prerequisites.
 
