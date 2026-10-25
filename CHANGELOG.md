@@ -7,6 +7,8 @@ lives in the wiki pages under `docs/wiki/`.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-25
+
 ### Changed
 
 - Presets are operating profiles: Agora sends every request for the exact model this computer serves, with the

@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/build-info", "crates/protocol", "crates/bridge", "crates/connector", "crates/robot", "crates/desktop", "crates/link"]
 
 [workspace.package]
-version = "1.0.1"
+version = "1.1.0"
 edition = "2024"
 rust-version = "1.96"
 description = "Sovereign LLM hub — a local OpenAI-compatible model reachable from the cloud via a self-hosted reverse tunnel."
