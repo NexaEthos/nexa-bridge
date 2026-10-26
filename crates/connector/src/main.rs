@@ -7,7 +7,7 @@ mod cli;
 mod config;
 mod managed;
 
-use std::io::Write as _;
+use std::io::{Read, Write as _};
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -17,7 +17,7 @@ use futures_util::{SinkExt, StreamExt};
 use nexa_link::agora::{self, PairingEnded};
 use nexa_tunnel_protocol::{Frame, MAX_WS_MSG_BYTES, ReqMeta, RequestId, RespMeta};
 use reqwest::Client;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio_tungstenite::connect_async_with_config;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::header::AUTHORIZATION;
@@ -164,18 +164,21 @@ fn jittered(secs: u64) -> Duration {
     Duration::from_millis(secs.saturating_mul(per_mille))
 }
 
-/// Read stdin until it ends: a supervisor that stops, crashes or is killed closes the pipe.
+/// Wait until stdin ends: a supervisor that stops, crashes or is killed closes the pipe.
 async fn pipe_closed() {
-    use tokio::io::AsyncReadExt;
+    // A runtime-blocking read of stdin can never be cancelled, so an ended loop would wait on it to exit.
+    let _ = closed_when_ends(std::io::stdin()).await;
+}
 
-    let mut stdin = tokio::io::stdin();
-    let mut sink = [0u8; 256];
-    loop {
-        match stdin.read(&mut sink).await {
-            Ok(0) | Err(_) => return,
-            Ok(_) => {}
-        }
-    }
+/// Read on a thread of its own until the reader ends, then say so; the runtime never waits for that thread.
+fn closed_when_ends<R: Read + Send + 'static>(mut reader: R) -> oneshot::Receiver<()> {
+    let (ended, closed) = oneshot::channel();
+    std::thread::spawn(move || {
+        let mut sink = [0u8; 256];
+        while matches!(reader.read(&mut sink), Ok(n) if n > 0) {}
+        let _ = ended.send(());
+    });
+    closed
 }
 
 async fn serve(cfg: &Config, client: &Client, attached: &AtomicBool) -> anyhow::Result<()> {
@@ -426,6 +429,48 @@ mod tests {
             let wait = jittered(8);
             assert!(wait >= Duration::from_secs(6) && wait <= Duration::from_secs(10));
         }
+    }
+
+    /// A reader that blocks for ever, as stdin does while the supervisor's pipe stays open.
+    struct OpenPipe(std::sync::mpsc::Receiver<()>);
+
+    impl Read for OpenPipe {
+        fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
+            let _ = self.0.recv();
+            Ok(0)
+        }
+    }
+
+    #[test]
+    fn an_ended_loop_exits_while_the_supervisors_pipe_stays_open() -> anyhow::Result<()> {
+        let (_keep_open, never) = std::sync::mpsc::channel();
+        let (done, finished) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let runtime = tokio::runtime::Runtime::new().map(|rt| {
+                rt.block_on(async {
+                    tokio::select! {
+                        () = async {} => {}
+                        _ = closed_when_ends(OpenPipe(never)) => {}
+                    }
+                });
+                drop(rt);
+            });
+            let _ = done.send(runtime.is_ok());
+        });
+        assert!(
+            finished.recv_timeout(Duration::from_secs(5))?,
+            "the runtime stopped without waiting on the pipe"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_closed_pipe_is_seen() -> anyhow::Result<()> {
+        let runtime = tokio::runtime::Runtime::new()?;
+        runtime.block_on(closed_when_ends(std::io::Cursor::new(
+            b"still data".to_vec(),
+        )))?;
+        Ok(())
     }
 
     #[test]

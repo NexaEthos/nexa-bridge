@@ -14,7 +14,8 @@ lives in the wiki pages under `docs/wiki/`.
   device; if Agora confirms it is gone, the connector exits with status 77: the desktop stops and shows the reason
   with **Link to Agora again**, the user service is not restarted, and `nexa-bridge status` names the way out. The
   credentials are kept, so a resumed workspace connects again without a new approval. Any other refusal is retried
-  as before.
+  as before. Under the desktop the stopped connector exits at once, without waiting for its supervisor's pipe to
+  close.
 
 ### Changed
 

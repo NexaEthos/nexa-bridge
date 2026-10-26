@@ -17,7 +17,9 @@ its own. The wait between attempts starts at `reconnect_secs` and doubles after 
 not attach, up to `reconnect_max_secs`, with a quarter of jitter either way so a fleet never knocks in
 lockstep; one successful attach puts the wait back at the start. Under a supervisor
 (`supervisor_pipe = true`) the loop also ends when stdin closes — the desktop's parent-death watch, see
-[desktop.md](desktop.md#sidecar-lifecycle).
+[desktop.md](desktop.md#sidecar-lifecycle). The pipe is read on a thread of its own, never tokio's blocking pool:
+that read cannot be cancelled, and a runtime waiting on it would keep an ended connector alive while the desktop's
+pipe stays open, so the desktop would never see its exit status.
 
 The relay answers `401` both for a credential the issuer no longer knows and for an issuer it could not
 reach, so the refusal alone proves nothing. In managed mode a handshake `401` makes the connector ask
@@ -80,6 +82,8 @@ Status encoding errors follow the existing reporting-health path and do not term
 
 ## Changelog
 
+- 2026-10-26 — Under a supervisor, an ended connector exits at once: the pipe watch reads stdin on its own thread
+  (found in the desktop acceptance: the connector logged the stop and stayed alive until stdin closed).
 - 2026-10-26 — A handshake `401` asks Agora about the device; its final word ends the loop with exit status 77.
 - 2026-10-17 — Removed attached request URLs before logging HTTP request and stream failures.
 - 2026-10-08 — Reconnect waits double to `reconnect_max_secs` with jitter and reset on attach; the
