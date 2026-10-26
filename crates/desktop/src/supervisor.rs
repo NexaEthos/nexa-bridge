@@ -21,7 +21,7 @@ const HEALTHY_RUN: Duration = Duration::from_mins(1);
 const STOP_GRACE: Duration = Duration::from_secs(3);
 const VERIFY_POLL: Duration = Duration::from_millis(500);
 const ENDED: &str = "Agora no longer accepts this computer: it was revoked, its connection was removed or the workspace \
-is suspended. Use Link to Agora again, or Connect once the workspace is active.";
+is suspended. Link it to Agora again below, or Connect once the workspace is active.";
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Debug)]
 #[serde(rename_all = "lowercase")]
@@ -40,11 +40,14 @@ pub struct Status {
     pub connector_up: bool,
     pub detail: Option<String>,
     pub restarts: u32,
+    /// Agora no longer accepts this computer: the panel opens the link step, its way back.
+    pub relink: bool,
 }
 
 impl Default for Status {
     fn default() -> Self {
         Self {
+            relink: false,
             phase: Phase::Stopped,
             bridge_up: false,
             connector_up: false,
@@ -419,6 +422,7 @@ impl Supervisor {
             && inner.status.phase == Phase::Stopped
         {
             inner.status.detail = Some(ENDED.into());
+            inner.status.relink = true;
         }
         self.publish(app);
     }
@@ -742,6 +746,26 @@ mod tests {
         );
     }
     use serde_json::json;
+
+    #[test]
+    fn the_panel_is_told_to_relink_only_when_agora_ended_the_computer()
+    -> Result<(), serde_json::Error> {
+        assert!(
+            !Status::default().relink,
+            "a fresh start never asks for a new link"
+        );
+        let ended = Status {
+            detail: Some(ENDED.into()),
+            relink: true,
+            ..Status::default()
+        };
+        assert_eq!(
+            serde_json::to_value(&ended)?["relink"],
+            serde_json::json!(true)
+        );
+        assert!(ENDED.contains("Link it to Agora again below"));
+        Ok(())
+    }
 
     #[test]
     fn only_the_connectors_ended_status_stops_the_connection() {

@@ -342,7 +342,8 @@ when the relay refuses the attach and Agora's device door answers with its final
 removed connection or suspended workspace), the connector exits with status 77
 (`nexa_link::agora::ENDED_EXIT_STATUS`). That exit stops both sidecars and the panel stays `Not connected`
 with the reason and the way out: **Link to Agora again**, or **Connect** once a suspended workspace is
-active. The credentials stay in the keystore, so a resumed workspace needs no new approval; a new link
+active. The status carries `relink: true`, so the panel leaves its compact view and opens the link step with that
+button in sight — in the compact view it sat behind Workspace settings. The credentials stay in the keystore, so a resumed workspace needs no new approval; a new link
 replaces them. Any other refusal, or an Agora that does not answer, stays in the retry loop.
 
 ## Settings and credential changes
@@ -503,7 +504,8 @@ repository.
 
 ## Changelog
 
-- 2026-10-26 — A computer Agora no longer accepts stops both sidecars and says why, instead of retrying for ever.
+- 2026-10-26 — A computer Agora no longer accepts stops both sidecars and says why, instead of retrying for ever;
+  the panel opens the link step with «Link to Agora again» in sight (found in the acceptance on a Mac).
 - 2026-10-25 — the review and the guides show the operating presets the workspace chose, on the model this computer serves; no preset is matched to the selected id.
 - 2026-10-20 — The status names the signed releases.
 - 2026-10-19 — Reduced the default window height for scaled laptop displays, aligned native discovery messages with the guided UI and clarified hardware release prerequisites.
