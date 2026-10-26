@@ -239,6 +239,13 @@ jobs:
               inputs: ($inputs | split("\n") | map(select(length > 0)) | map(capture("^(?<sha256>[0-9a-f]{64})  (?<path>.+)$"))),
               outputs: ($outputs | split("\n") | map(select(length > 0)) | map(capture("^(?<sha256>[0-9a-f]{64})  (?<path>.+)$"))),
               replaces: ($replaced | split("\n") | map(select(length > 0)))}' > "signed/signing-report-${TARGET}.json"
+      - name: The updater signature of the signed app, over the bytes the release carries
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: >-
+          bash .github/scripts/updater-sign.sh "${{ needs.verify.outputs.version }}"
+          "nexa-bridge-${TARGET}.app.tar.gz" signed/desktop-"${TARGET}"/*.app.tar.gz
       - name: Forget the keychain
         if: always()
         run: if [ -f "${RUNNER_TEMP}/release.keychain-db" ]; then security delete-keychain "${RUNNER_TEMP}/release.keychain-db"; fi
@@ -391,6 +398,15 @@ jobs:
               outputs: ($outputs | split("\n") | map(select(length > 0)) | map(capture("^(?<sha256>[0-9a-f]{64})  (?<path>.+)$"))),
               embedded: ($embedded | split("\n") | map(select(length > 0)) | map(capture("^(?<sha256>[0-9a-f]{64})  (?<path>.+)$"))),
               replaces: ($replaced | split("\n") | map(select(length > 0)))}' > "signed/signing-report-${TARGET}.json"
+      - name: The updater signatures of the signed installers, over the bytes the release carries
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          set -euo pipefail
+          bash .github/scripts/updater-sign.sh "$VERSION" "nexa-bridge-${TARGET}-setup.exe" signed/desktop-"${TARGET}"/*-setup.exe
+          bash .github/scripts/updater-sign.sh "$VERSION" "nexa-bridge-${TARGET}.msi" signed/desktop-"${TARGET}"/*.msi
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: signed-${{ env.TARGET }}
@@ -398,11 +414,42 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-  publish:
-    name: publish the release
-    needs: [verify, sign-macos, sign-windows]
+  sign-linux:
+    name: sign the Linux updater bundles
+    needs: verify
     runs-on: ubuntu-24.04
     environment: release
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ env.TAG }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: verified-${{ env.TAG }}
+          path: candidate
+      - name: The updater signatures of the Linux packages, the candidate's bytes as the release carries them
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do
+            bash .github/scripts/updater-sign.sh "$VERSION" "nexa-bridge-${target}.AppImage" candidate/desktop-"${target}"/*.AppImage
+            bash .github/scripts/updater-sign.sh "$VERSION" "nexa-bridge-${target}.deb" candidate/desktop-"${target}"/*.deb
+          done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: signed-updater-linux
+          path: signed
+          retention-days: 7
+          if-no-files-found: error
+
+  publish:
+    name: publish the release
+    needs: [verify, sign-macos, sign-windows, sign-linux]
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
       id-token: write
@@ -478,15 +525,11 @@ jobs:
           one "candidate/nexa-bridge-${VERSION}.spdx.json" "nexa-bridge-${VERSION}.spdx.json"
           one "candidate/candidate.json" "candidate.json"
           for report in signed/signing-report-*.json; do one "$report" "$(basename "$report")"; done
-      - name: The updater manifest — every updater bundle signed for this version, latest.json naming each one
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      - name: The updater manifest — every signature made under the approval checked against the app's key and version
         run: |
           set -euo pipefail
-          for name in TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD; do
-            [ -n "${!name}" ] || { echo "::error::${name} is missing from the release environment"; exit 1; }
-          done
+          sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends minisign > /dev/null
+          jq -r .plugins.updater.pubkey crates/desktop/tauri.conf.json | base64 --decode > "${RUNNER_TEMP}/updater.pub"
           updater=(
             "darwin-aarch64-app=nexa-bridge-aarch64-apple-darwin.app.tar.gz"
             "darwin-x86_64-app=nexa-bridge-x86_64-apple-darwin.app.tar.gz"
@@ -502,10 +545,15 @@ jobs:
           for entry in "${updater[@]}"; do
             key=${entry%%=*}
             asset=${entry#*=}
-            npx --yes "@tauri-apps/cli@${TAURI_CLI}" signer sign --app-version "$VERSION" "release/${asset}" > /dev/null
-            platforms=$(jq --arg key "$key" --arg url "${base}/${asset}" --rawfile signature "release/${asset}.sig" \
+            sig="signed/updater/${asset}.sig"
+            [ -s "$sig" ] || { echo "::error::no updater signature for ${asset}"; exit 1; }
+            base64 --decode < "$sig" > "${RUNNER_TEMP}/updater.minisig"
+            minisign -V -q -m "release/${asset}" -x "${RUNNER_TEMP}/updater.minisig" -p "${RUNNER_TEMP}/updater.pub" \
+              || { echo "::error::the updater signature of ${asset} does not verify against the app's key"; exit 1; }
+            grep -q "version:${VERSION}\$" "${RUNNER_TEMP}/updater.minisig" \
+              || { echo "::error::the updater signature of ${asset} names another version"; exit 1; }
+            platforms=$(jq --arg key "$key" --arg url "${base}/${asset}" --rawfile signature "$sig" \
               '. + {($key): {url: $url, signature: ($signature | rtrimstr("\n"))}}' <<<"$platforms")
-            rm "release/${asset}.sig"
           done
           jq -n --arg version "$VERSION" --arg pub_date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --rawfile notes "${RUNNER_TEMP}/changes.md" --argjson platforms "$platforms" \
@@ -532,7 +580,7 @@ jobs:
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: release/*
-      - name: Publish the release with every asset — this job's approval is the last person's word
+      - name: Publish the release with every asset — the signing approval was the person's word
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
