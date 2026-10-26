@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use anyhow::{Context, Result};
-use nexa_link::agora;
+use nexa_link::agora::{self, PairingEnded};
 use nexa_link::guides::WorkspacePreset;
 use nexa_link::runtimes::{self, Flavor, Runtime};
 use nexa_link::secret;
@@ -16,6 +16,9 @@ use super::store::{self, Paths, Server};
 use super::term::Term;
 
 const LISTEN: &str = "127.0.0.1:8088";
+const ENDED: &str = "This server was revoked in Agora, its connection was removed or the workspace is suspended, so the \
+connector stopped. Revoked or removed: `nexa-bridge unlink`, then `nexa-bridge setup`, links it again. Suspended: once \
+the workspace is active, `nexa-bridge setup` restarts the services.";
 const RUNTIMES: [&str; 5] = ["vllm", "sglang", "ollama", "lm-studio", "llama-cpp"];
 
 const fn guide_keys(flavor: Flavor) -> &'static [&'static str] {
@@ -216,6 +219,7 @@ fn write_envs(paths: &Paths, server: &Server, proof: &str, local_key: &str) -> R
     bridge.insert("BRIDGE_LOG_FORMAT", "json".to_string());
     store::write_private(&paths.bridge_env(), &store::encode_env(&bridge))?;
     let mut connector = BTreeMap::new();
+    connector.insert("CONNECTOR_AGORA_URL", server.agora_url.clone());
     connector.insert("CONNECTOR_RELAY_URL", server.relay_url.clone());
     connector.insert("CONNECTOR_TUNNEL_TOKEN", proof.to_string());
     connector.insert("CONNECTOR_MANAGED_AUTH", "true".to_string());
@@ -288,6 +292,8 @@ pub(super) fn bin_dir() -> Result<std::path::PathBuf> {
 
 fn update(term: &Term, paths: &Paths, server: &Server) -> Result<()> {
     let version = env!("CARGO_PKG_VERSION");
+    let (proof, key) = secrets(paths)?;
+    write_envs(paths, server, &proof, &key)?;
     if service::installed() {
         service::install(paths, &bin_dir()?)?;
         service::restart()?;
@@ -469,11 +475,21 @@ pub async fn status(term: &Term) -> Result<()> {
     let server =
         Server::load(&paths)?.context("This server is not linked yet: run `nexa-bridge setup`.")?;
     let (proof, _) = secrets(&paths)?;
-    let device = agora::device_status(&server.agora_url, &proof).await?;
     term.line(&format!(
         "workspace   {} · bridge {}",
         server.tenant_slug, server.connection_slug
     ))?;
+    let device = match agora::device_status(&server.agora_url, &proof).await {
+        Ok(device) => device,
+        Err(error) if error.downcast_ref::<PairingEnded>().is_some() => {
+            term.line(&format!(
+                "device      {} — Agora no longer accepts this server",
+                server.device_id
+            ))?;
+            anyhow::bail!("{ENDED}");
+        }
+        Err(error) => return Err(error),
+    };
     term.line(&format!(
         "device      {} ({})",
         server.device_id, device.status
@@ -698,6 +714,33 @@ mod tests {
         );
         args.runtime = Some("unknown".into());
         assert!(choose_runtime(&term, &args, None).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn the_connector_env_names_the_agora_that_can_end_the_device() -> Result<()> {
+        let paths = Paths {
+            dir: std::env::temp_dir().join(format!("nexa-envs-{}", secret::random_hex::<8>()?)),
+        };
+        let server = Server {
+            agora_url: "https://agora.example.invalid".into(),
+            relay_url: "wss://relay.example.invalid/_tunnel".into(),
+            listen_addr: LISTEN.into(),
+            ..Server::default()
+        };
+        write_envs(&paths, &server, "synthetic-proof", "synthetic-key")?;
+        let vars = store::decode_env(
+            &store::read_private(&paths.connector_env())?.context("connector.env was written")?,
+        );
+        assert_eq!(
+            vars.get("CONNECTOR_AGORA_URL").map(String::as_str),
+            Some("https://agora.example.invalid")
+        );
+        assert_eq!(
+            secrets(&paths)?,
+            ("synthetic-proof".into(), "synthetic-key".into())
+        );
+        std::fs::remove_dir_all(paths.dir)?;
         Ok(())
     }
 

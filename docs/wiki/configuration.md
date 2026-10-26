@@ -145,6 +145,7 @@ heterogeneous devices. See [load-balancing.md](load-balancing.md).
 | field | meaning |
 | --- | --- |
 | `relay_url` (required) | The relay WebSocket to dial, e.g. `wss://relay.example.com/_tunnel`. |
+| `agora_url` (managed: required; manual: refused) | The HTTPS origin of the Agora that approved this computer, e.g. `https://agora.example.com`. Asked only when the relay refuses the attach; see [connector.md](connector.md#the-loop). |
 | `tunnel_token` (required) | Presented as a bearer on the attach request — decides who may attach. |
 | `upstream_url` (required) | The local bridge, e.g. `http://127.0.0.1:8088`. |
 | `reconnect_secs` (default `3`) | First wait before re-dialling after the tunnel drops. |
@@ -155,8 +156,9 @@ heterogeneous devices. See [load-balancing.md](load-balancing.md).
 
 Both manual and managed relay attachments require WSS without URL-embedded credentials, query or
 fragment. The tunnel token must be nonempty visible ASCII. Reconnect, keepalive, status-poll intervals
-and upstream timeouts must be positive. Managed mode additionally requires explicit loopback HTTP
-and a nonempty local status key; an IPv6 loopback origin is accepted.
+and upstream timeouts must be positive. Managed mode additionally requires explicit loopback HTTP,
+a nonempty local status key and `agora_url` as a bare HTTPS origin; an IPv6 loopback origin is
+accepted. Manual mode refuses `agora_url`, so a manual tunnel token never leaves for Agora.
 
 ## Robot
 

@@ -64,7 +64,7 @@ bridge in Agora's model settings (the bridge is named by its connection), as for
 
 | Command | What it does |
 | --- | --- |
-| `nexa-bridge setup [options]` | the steps above; on a server already linked, the update: the services restart on the programs installed |
+| `nexa-bridge setup [options]` | the steps above; on a server already linked, the update: the env files are written again from `server.json` and the saved credentials, and the services restart on the programs installed |
 | `nexa-bridge status` | the workspace and bridge, the device's standing at Agora, the model and whether the model server serves it, the services, and the workspace's presets on this bridge marked served or not |
 | `nexa-bridge model <id>` | serve another exact id: rewrite the bridge's settings, tell the workspace, restart the services, print the guide when Nexa has one |
 | `nexa-bridge pool` | the model servers this bridge balances the selected model across, and whether each answers as the running bridge sees it ([#pool](#pool)) |
@@ -136,7 +136,8 @@ owner-only (0600) through a temporary file renamed into place:
 
 - `server.json` — the link without a secret: Agora, workspace, connection, device id, relay, model, runtime;
 - `bridge.env` — the bridge's settings with the local key between connector and bridge;
-- `connector.env` — the relay, the device proof as the tunnel bearer, managed authentication on, the local key;
+- `connector.env` — the Agora origin, the relay, the device proof as the tunnel bearer, managed authentication on,
+  the local key;
 - `pending-pairing.json` — the proof, its Agora/approval origins and the approval link when received; retained until
   setup completes, including after browser approval;
 - `pending-proof` — the unbound proof left by an interrupted 1.0.0 setup; imported only through explicit-origin recovery;
@@ -154,6 +155,19 @@ The command parser accepts both `--flag value` and `--flag=value`; positional ar
 its member. Without a CLI command, the executable keeps its connector behavior. Installed service paths are taken
 from the running executable's directory. Pool mutations reinstall existing units and restart the services.
 
+## When Agora no longer accepts the server {#ended}
+
+A revoked server, a removed connection and a suspended workspace look the same from here: the relay refuses the
+attach and Agora's device door refuses the proof. The connector then stops dialling and exits with status 77, which
+its unit does not restart (`RestartPreventExitStatus=77`); the journal carries the reason, `nexa-bridge status`
+shows the connector `failed`, prints the device as no longer accepted and ends with the way out:
+
+- revoked server or removed connection: `nexa-bridge unlink`, then `nexa-bridge setup` links the server again;
+- suspended workspace: once it is active again, `nexa-bridge setup` restarts the services on the same credentials.
+
+Nothing is deleted on the refusal, so a resumed workspace needs no new approval. A relay that refuses while Agora
+still knows the device, or an Agora that does not answer, keeps the connector retrying with its usual backoff.
+
 ## Elsewhere than Linux
 
 The services are systemd units. On another system `--no-service` links and configures the server and prints how to
@@ -161,6 +175,8 @@ start the two programs with their files; the desktop app is the way on a persona
 
 ## Changelog
 
+- 2026-10-26 — a server Agora no longer accepts stops its connector and `status` names the way out; the update
+  writes the env files again, so `connector.env` gains the Agora origin.
 - 2026-10-25 — the model choice lists the served ids alone; the setup names Nexa's operating presets, and the guides follow the presets the workspace chose, never a match on the model id.
 - 2026-10-24: Choose the runtime before enrollment, resume origin-bound pairing and incomplete setup, recover
   approved 1.0.0 proofs with an explicit origin, and distinguish configuration from live model availability.

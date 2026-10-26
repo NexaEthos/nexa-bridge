@@ -8,20 +8,22 @@ mod config;
 mod managed;
 
 use std::io::Write as _;
+use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
+use nexa_link::agora::{self, PairingEnded};
 use nexa_tunnel_protocol::{Frame, MAX_WS_MSG_BYTES, ReqMeta, RequestId, RespMeta};
 use reqwest::Client;
 use tokio::sync::mpsc;
 use tokio_tungstenite::connect_async_with_config;
-use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
-use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::http::header::AUTHORIZATION;
+use tokio_tungstenite::tungstenite::http::{HeaderValue, StatusCode};
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
+use tokio_tungstenite::tungstenite::{Error as WsError, Message};
 
 use crate::config::Config;
 
@@ -47,7 +49,7 @@ fn send_frame(tx: &mpsc::UnboundedSender<Message>, frame: &Frame) -> anyhow::Res
 }
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() -> anyhow::Result<ExitCode> {
     if std::env::args()
         .nth(1)
         .is_some_and(|flag| flag == "--version" || flag == "-V")
@@ -57,14 +59,14 @@ async fn main() -> anyhow::Result<()> {
             "{}",
             nexa_tunnel_protocol::build_info!().describe("nexa-llm-connector")
         )?;
-        return Ok(());
+        return Ok(ExitCode::SUCCESS);
     }
     rustls::crypto::ring::default_provider()
         .install_default()
         .map_err(|_| anyhow::anyhow!("could not install the connector TLS provider"))?;
     let words: Vec<String> = std::env::args().skip(1).collect();
     if cli::is_command(words.first().map(String::as_str)) {
-        return cli::run(&words).await;
+        return cli::run(&words).await.map(|()| ExitCode::SUCCESS);
     }
 
     let cfg = Config::load()?;
@@ -83,21 +85,25 @@ async fn main() -> anyhow::Result<()> {
     if cfg.supervisor_pipe {
         tokio::select! {
             () = run(&cfg, &client) => {}
-            () = pipe_closed() => tracing::info!("supervisor pipe closed; stopping"),
+            () = pipe_closed() => {
+                tracing::info!("supervisor pipe closed; stopping");
+                return Ok(ExitCode::SUCCESS);
+            }
         }
-        return Ok(());
+    } else {
+        run(&cfg, &client).await;
     }
-    run(&cfg, &client).await;
-    Ok(())
+    Ok(ExitCode::from(agora::ENDED_EXIT_STATUS))
 }
 
-/// Dial, serve, dial again: the wait doubles up to `reconnect_max_secs` until an attach succeeds.
+/// Dial, serve, dial again, until Agora says the device is gone: the wait doubles up to `reconnect_max_secs`.
 async fn run(cfg: &Config, client: &Client) {
     let mut wait = cfg.reconnect_secs;
     loop {
         let attached = AtomicBool::new(false);
         match serve(cfg, client, &attached).await {
             Ok(()) => tracing::info!("tunnel closed cleanly; reconnecting"),
+            Err(e) if refused(&e) && device_ended(cfg).await => return,
             Err(e) => tracing::warn!(error = %e, "tunnel error; reconnecting"),
         }
         tracing::info!(desktop_tunnel_connected = false, "relay detached");
@@ -107,6 +113,39 @@ async fn run(cfg: &Config, client: &Client) {
             next_wait(wait, cfg.reconnect_max_secs)
         };
         tokio::time::sleep(jittered(wait)).await;
+    }
+}
+
+/// The relay refused the credential at the handshake: the one case worth asking Agora about.
+fn refused(error: &anyhow::Error) -> bool {
+    matches!(
+        error.downcast_ref::<WsError>(),
+        Some(WsError::Http(response)) if response.status() == StatusCode::UNAUTHORIZED
+    )
+}
+
+/// Ask Agora about the device: only its final word ends the loop; an unreachable Agora is retried.
+async fn device_ended(cfg: &Config) -> bool {
+    let Some(origin) = cfg.agora_url.as_deref() else {
+        return false;
+    };
+    match agora::device_status(origin, &cfg.tunnel_token).await {
+        Err(error) if error.downcast_ref::<PairingEnded>().is_some() => {
+            tracing::error!(
+                reason = %error,
+                "Agora no longer accepts this computer: it was revoked, its connection was removed or the workspace \
+                 is suspended; reconnecting stopped"
+            );
+            true
+        }
+        Err(error) => {
+            tracing::warn!(error = %error, "the relay refused the credential and Agora did not answer; reconnecting");
+            false
+        }
+        Ok(device) => {
+            tracing::warn!(status = %device.status, "the relay refused a credential Agora still knows; reconnecting");
+            false
+        }
     }
 }
 
@@ -387,6 +426,24 @@ mod tests {
             let wait = jittered(8);
             assert!(wait >= Duration::from_secs(6) && wait <= Duration::from_secs(10));
         }
+    }
+
+    #[test]
+    fn only_a_handshake_401_asks_agora_about_the_device() -> anyhow::Result<()> {
+        let refusal = |status: u16| -> anyhow::Result<anyhow::Error> {
+            let response = tokio_tungstenite::tungstenite::http::Response::builder()
+                .status(status)
+                .body(None)?;
+            Ok(WsError::Http(Box::new(response)).into())
+        };
+        assert!(refused(&refusal(401)?));
+        assert!(!refused(&refusal(403)?));
+        assert!(!refused(&refusal(503)?));
+        assert!(!refused(&WsError::ConnectionClosed.into()));
+        assert!(!refused(&anyhow::anyhow!(
+            "relay does not support managed authentication"
+        )));
+        Ok(())
     }
 
     #[test]

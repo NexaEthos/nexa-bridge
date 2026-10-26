@@ -7,6 +7,21 @@ lives in the wiki pages under `docs/wiki/`.
 
 ## [Unreleased]
 
+### Fixed
+
+- A computer or server that Agora no longer accepts, because it was revoked, its connection was removed or the
+  workspace was suspended, stops retrying. When the relay refuses the attach, the connector asks Agora about the
+  device; if Agora confirms it is gone, the connector exits with status 77: the desktop stops and shows the reason
+  with **Link to Agora again**, the user service is not restarted, and `nexa-bridge status` names the way out. The
+  credentials are kept, so a resumed workspace connects again without a new approval. Any other refusal is retried
+  as before.
+
+### Changed
+
+- The managed connector requires `CONNECTOR_AGORA_URL`, the Agora that approved the computer; a manual connector
+  refuses it. The desktop passes it, and the command-line update writes the env files again so existing servers
+  gain it.
+
 ## [1.1.0] - 2026-10-25
 
 ### Changed

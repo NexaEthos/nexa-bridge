@@ -12,13 +12,21 @@ that is what makes the whole thing work behind NAT with no firewall changes.
 
 ## The loop
 
-`main` re-enters `serve` forever, so a dropped tunnel always comes back on its own. The wait between
-attempts starts at `reconnect_secs` and doubles after every attempt that did not attach, up to
-`reconnect_max_secs`, with a quarter of jitter either way so a fleet never knocks in lockstep; one
-successful attach puts the wait back at the start. A revoked or refused token therefore knocks less
-and less often, not every three seconds for ever. Under a supervisor (`supervisor_pipe = true`) the
-loop also ends when stdin closes — the desktop's parent-death watch, see
+`main` re-enters `serve` until Agora says the device is gone, so a dropped tunnel always comes back on
+its own. The wait between attempts starts at `reconnect_secs` and doubles after every attempt that did
+not attach, up to `reconnect_max_secs`, with a quarter of jitter either way so a fleet never knocks in
+lockstep; one successful attach puts the wait back at the start. Under a supervisor
+(`supervisor_pipe = true`) the loop also ends when stdin closes — the desktop's parent-death watch, see
 [desktop.md](desktop.md#sidecar-lifecycle).
+
+The relay answers `401` both for a credential the issuer no longer knows and for an issuer it could not
+reach, so the refusal alone proves nothing. In managed mode a handshake `401` makes the connector ask
+Agora's device door (`agora_url`) with its own credential. Agora's final word — the computer revoked, its
+connection removed or its workspace suspended — ends the loop: the connector logs the reason at ERROR
+and exits with status 77 (`nexa_link::agora::ENDED_EXIT_STATUS`). The user service carries
+`RestartPreventExitStatus=77` and the desktop stops instead of restarting it. Any other answer — the
+device still active, Agora unreachable, a refusal that is not `401` — keeps the loop. A manual
+connector never asks Agora: its token is not a device credential.
 
 The two outcomes are logged differently on purpose. A **clean close** is INFO: hosted ingresses
 recycle long-lived WebSockets on a schedule, so an instant reattach is routine operational noise, not
@@ -72,6 +80,7 @@ Status encoding errors follow the existing reporting-health path and do not term
 
 ## Changelog
 
+- 2026-10-26 — A handshake `401` asks Agora about the device; its final word ends the loop with exit status 77.
 - 2026-10-17 — Removed attached request URLs before logging HTTP request and stream failures.
 - 2026-10-08 — Reconnect waits double to `reconnect_max_secs` with jitter and reset on attach; the
   supervisor pipe ends the loop when the desktop goes.

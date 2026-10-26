@@ -58,6 +58,9 @@ a pending proof silently. If browser launch fails, reload native state so the ap
 Open approval action remain accessible. Expired pairing explains cancel/retry. Local cancellation
 does not revoke a concurrently approved server record: the owner must revoke that unused device
 in Agora. Revocation/relink is user recovery; the desktop does not schedule automatic proof rotation.
+A connector whose attach the relay refuses asks Agora's device door with its proof; Agora's final word
+(revoked computer, removed connection, suspended workspace) stops it with exit status 77 and keeps every
+credential, so relinking or a resumed workspace is the way back. See [connector.md](connector.md#the-loop).
 
 Connect saves dirty model settings, rechecks actual model availability and verifies the saved
 issuer/device/tenant/connection before publishing that model to the owning tenant. The preset is
@@ -134,6 +137,8 @@ Bearer for the status poll when the bridge auth is enabled; absent = unauthentic
 Hand-written: a derived Debug would leak the token into logs and error output.
 
 ## Changelog
+
+- 2026-10-26: A refused attach asks Agora about the device; its final word stops the connector, credentials kept.
 
 - 2026-09-05: Implement separated credential boundaries, positive managed negotiation, explicit
   workspace confirmation, exact-model publication and recoverable native pairing state.
