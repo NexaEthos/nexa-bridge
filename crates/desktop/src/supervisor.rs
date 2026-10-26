@@ -1,6 +1,7 @@
 //! Sidecar lifecycle and verified state. See docs/wiki/desktop.md#connection-state
 
 use crate::settings::{self, Settings};
+use nexa_link::agora;
 use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -19,6 +20,8 @@ const HEALTHY_RUN: Duration = Duration::from_mins(1);
 #[cfg(unix)]
 const STOP_GRACE: Duration = Duration::from_secs(3);
 const VERIFY_POLL: Duration = Duration::from_millis(500);
+const ENDED: &str = "Agora no longer accepts this computer: it was revoked, its connection was removed or the workspace \
+is suspended. Link it to Agora again below, or Connect once the workspace is active.";
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Debug)]
 #[serde(rename_all = "lowercase")]
@@ -37,11 +40,14 @@ pub struct Status {
     pub connector_up: bool,
     pub detail: Option<String>,
     pub restarts: u32,
+    /// Agora no longer accepts this computer: the panel opens the link step, its way back.
+    pub relink: bool,
 }
 
 impl Default for Status {
     fn default() -> Self {
         Self {
+            relink: false,
             phase: Phase::Stopped,
             bridge_up: false,
             connector_up: false,
@@ -252,6 +258,11 @@ impl Supervisor {
                 .env("BRIDGE_FLAVOR", "desktop")
                 .env("RUST_LOG", "info")
         } else {
+            let command = if cfg.settings.managed.is_some() {
+                command.env("CONNECTOR_AGORA_URL", &cfg.settings.agora_url)
+            } else {
+                command
+            };
             command
                 .env("CONNECTOR_SUPERVISOR_PIPE", "true")
                 .env("CONNECTOR_RELAY_URL", &cfg.settings.relay_url)
@@ -308,6 +319,7 @@ impl Supervisor {
                 }
             }
             let mut terminated = false;
+            let mut ended = false;
             let mut started_pid = None;
             let detail = match self.spawn_child(app, service, cfg) {
                 Ok(ChildStart::WaitingForBridge) => {
@@ -344,6 +356,7 @@ impl Supervisor {
                             }
                             CommandEvent::Terminated(payload) => {
                                 terminated = true;
+                                ended = device_ended(service, payload.code);
                                 detail = exit_detail(service, payload.code, last_stderr.as_deref());
                                 if started.elapsed() >= HEALTHY_RUN {
                                     attempt = 0;
@@ -362,6 +375,10 @@ impl Supervisor {
                 }
                 Err(error) => error,
             };
+            if ended {
+                self.end(app, cfg.generation, started_pid);
+                return;
+            }
             if service == CONNECTOR
                 && let Some(pid) = started_pid
                 && self.0.lock().is_ok_and(|inner| {
@@ -383,6 +400,31 @@ impl Supervisor {
             tokio::time::sleep(Duration::from_secs(BACKOFF[attempt.min(BACKOFF.len() - 1)])).await;
             attempt = attempt.saturating_add(1);
         }
+    }
+
+    /// Agora refused this computer: stop both sidecars and say so, instead of retrying a credential that is gone.
+    fn end(&self, app: &AppHandle, generation: u64, pid: Option<u32>) {
+        match self.0.lock() {
+            Ok(mut inner) if inner.generation == generation => inner
+                .children
+                .retain(|(name, child)| *name != CONNECTOR || Some(child.pid()) != pid),
+            Ok(_) => return,
+            Err(e) => tracing::error!(error = %e, "supervisor state unavailable"),
+        }
+        if let Err(error) = self.stop(app) {
+            tracing::error!(
+                error,
+                "sidecars did not stop after Agora refused this computer"
+            );
+            return;
+        }
+        if let Ok(mut inner) = self.0.lock()
+            && inner.status.phase == Phase::Stopped
+        {
+            inner.status.detail = Some(ENDED.into());
+            inner.status.relink = true;
+        }
+        self.publish(app);
     }
 
     fn retire_service(
@@ -570,6 +612,11 @@ fn last_line(bytes: &[u8]) -> Option<String> {
     Some(line.chars().take(200).collect())
 }
 
+/// The connector exits with this status only once Agora said its device is gone.
+fn device_ended(service: &str, code: Option<i32>) -> bool {
+    service == CONNECTOR && code == Some(i32::from(agora::ENDED_EXIT_STATUS))
+}
+
 fn exit_detail(service: &str, code: Option<i32>, stderr: Option<&str>) -> String {
     stderr.map_or_else(
         || format!("{service} exited ({code:?}); retry scheduled"),
@@ -699,6 +746,34 @@ mod tests {
         );
     }
     use serde_json::json;
+
+    #[test]
+    fn the_panel_is_told_to_relink_only_when_agora_ended_the_computer()
+    -> Result<(), serde_json::Error> {
+        assert!(
+            !Status::default().relink,
+            "a fresh start never asks for a new link"
+        );
+        let ended = Status {
+            detail: Some(ENDED.into()),
+            relink: true,
+            ..Status::default()
+        };
+        assert_eq!(
+            serde_json::to_value(&ended)?["relink"],
+            serde_json::json!(true)
+        );
+        assert!(ENDED.contains("Link it to Agora again below"));
+        Ok(())
+    }
+
+    #[test]
+    fn only_the_connectors_ended_status_stops_the_connection() {
+        assert!(device_ended(CONNECTOR, Some(77)));
+        assert!(!device_ended(BRIDGE, Some(77)));
+        assert!(!device_ended(CONNECTOR, Some(1)));
+        assert!(!device_ended(CONNECTOR, None));
+    }
 
     #[test]
     fn connection_events_are_typed_not_log_messages() {

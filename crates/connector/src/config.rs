@@ -1,5 +1,6 @@
 //! # Wiki: docs/wiki/managed-auth.md
 
+use anyhow::Context as _;
 use figment::Figment;
 use figment::providers::{Env, Format, Toml};
 use serde::Deserialize;
@@ -10,6 +11,8 @@ use tracing_subscriber::{EnvFilter, fmt};
 pub struct Config {
     #[serde(default)]
     pub managed_auth: bool,
+    #[serde(default)]
+    pub agora_url: Option<String>,
     pub relay_url: String,
     pub tunnel_token: String,
     pub upstream_url: String,
@@ -40,6 +43,7 @@ impl std::fmt::Debug for Config {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Config")
             .field("managed_auth", &self.managed_auth)
+            .field("agora_url", &self.agora_url)
             .field("relay_url", &"<configured>")
             .field("tunnel_token", &"<redacted>")
             .field("upstream_url", &"<configured>")
@@ -146,8 +150,19 @@ impl Config {
             );
         }
         if !self.managed_auth {
+            anyhow::ensure!(
+                self.agora_url.is_none(),
+                "agora_url belongs to managed authentication: a manual tunnel token never goes to Agora"
+            );
             return Ok(());
         }
+        let agora = self.agora_url.as_deref().context(
+            "managed authentication requires agora_url, the Agora that approved this computer",
+        )?;
+        anyhow::ensure!(
+            nexa_link::agora::origin(agora)? == agora,
+            "agora_url must be a bare HTTPS origin such as https://agora.example.com"
+        );
         anyhow::ensure!(
             upstream.scheme() == "http"
                 && upstream.host_str().is_some_and(|host| {
@@ -190,6 +205,7 @@ mod tests {
     fn config() -> Config {
         Config {
             managed_auth: false,
+            agora_url: None,
             relay_url: "wss://relay.example.com/_tunnel".into(),
             tunnel_token: "test-token".into(),
             upstream_url: "http://127.0.0.1:8088".into(),
@@ -293,6 +309,7 @@ mod tests {
     fn managed_mode_requires_a_local_key_and_explicit_loopback() {
         let base = Config {
             managed_auth: true,
+            agora_url: Some("https://agora.example.com".into()),
             status_api_key: Some("local-key".into()),
             ..config()
         };
@@ -331,10 +348,35 @@ mod tests {
         assert!(
             Config {
                 status_url: Some(String::new()),
-                ..base
+                ..base.clone()
             }
             .validate()
             .is_err()
+        );
+        for agora in [
+            None,
+            Some("https://agora.example.com/"),
+            Some("http://agora.example.com"),
+            Some("https://agora.example.com/app"),
+        ] {
+            assert!(
+                Config {
+                    agora_url: agora.map(Into::into),
+                    ..base.clone()
+                }
+                .validate()
+                .is_err()
+            );
+        }
+        assert!(
+            Config {
+                managed_auth: false,
+                status_api_key: None,
+                ..base
+            }
+            .validate()
+            .is_err(),
+            "a manual tunnel token never goes to Agora"
         );
     }
 }

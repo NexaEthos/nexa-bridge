@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, Result};
+use nexa_link::agora;
 
 use super::store::{Paths, write_private};
 
@@ -42,6 +43,13 @@ pub fn units(paths: &Paths, bin_dir: &Path) -> (String, String) {
             "ExecStart={}\nRestart=always\nRestartSec=3\nNoNewPrivileges=true",
             exec.display()
         );
+        if !after.is_empty() {
+            let _ = writeln!(
+                text,
+                "RestartPreventExitStatus={}",
+                agora::ENDED_EXIT_STATUS
+            );
+        }
         let _ = writeln!(text, "\n[Install]\nWantedBy=default.target");
         text
     };
@@ -172,5 +180,10 @@ mod tests {
         assert!(connector.contains("Requires=nexa-bridge.service"));
         assert!(connector.contains("After=network-online.target nexa-bridge.service"));
         assert!(connector.contains("WantedBy=default.target"));
+        assert!(
+            connector.contains("RestartPreventExitStatus=77"),
+            "a connector Agora refused stays stopped"
+        );
+        assert!(!bridge.contains("RestartPreventExitStatus="));
     }
 }

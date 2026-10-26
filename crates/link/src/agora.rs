@@ -12,6 +12,9 @@ use crate::secret;
 
 const API: &str = "/api/v1/bridge/managed";
 
+/// The connector's exit status once Agora no longer accepts its device: a supervisor stops, never restarts it.
+pub const ENDED_EXIT_STATUS: u8 = 77;
+
 /// Agora's final word on a pairing: the device is gone, refused or expired — polling must stop.
 #[derive(Debug)]
 pub struct PairingEnded(pub String);

@@ -9,6 +9,8 @@ EnvironmentFile=%h/.config/nexa-llm-bridge/connector.env
 ExecStart=%h/nexa-bridge/target/release/nexa-llm-connector
 Restart=always
 RestartSec=3
+# 77: Agora no longer accepts this computer's credential; restarting cannot help.
+RestartPreventExitStatus=77
 # Hardening. NoNewPrivileges is always safe; the namespace-based directives below need
 # unprivileged user namespaces in the user manager — uncomment after `systemctl --user
 # start` succeeds with them on your distro.

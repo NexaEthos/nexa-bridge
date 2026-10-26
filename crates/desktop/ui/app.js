@@ -107,6 +107,10 @@ function markDirty() {
 
 function renderStatus(status) {
   if (phase !== "running" && status.phase === "running" && !pendingPairing) compactView = true;
+  if (status.relink) {
+    compactView = false;
+    setupStep = 1;
+  }
   phase = status.phase;
   $("dot").className = `dot ${status.phase}`;
   $("status-line").textContent =
