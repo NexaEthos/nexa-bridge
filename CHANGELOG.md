@@ -7,6 +7,8 @@ lives in the wiki pages under `docs/wiki/`.
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-10-26
+
 ### Fixed
 
 - A computer or server that Agora no longer accepts, because it was revoked, its connection was removed or the
