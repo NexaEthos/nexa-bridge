@@ -1,15 +1,16 @@
 # Release — from a version to a signed, published build
 
-Five workflows, one build, **two release approvals: signing and publication**. A release starts as a
-reviewed **pull request** that names the version; its merge is **tagged** automatically; the tag builds a
-**candidate** once, attested by GitHub and verified by people on their machines. Automated verification
-precedes signing. The verified candidate is then **promoted** by digest: signed on macOS and Windows,
-re-attested, given an updater manifest and published. Nothing is recompiled after the tag.
+Five workflows, one build, **one release approval: sign and publish**. A release starts as a generated
+**pull request** that names the version and merges itself once CI is green; its merge is **tagged**
+automatically; the tag builds a **candidate** once, attested by GitHub and verified by people on their
+machines. Automated verification precedes signing. The verified candidate is then **promoted** by digest:
+signed on macOS and Windows, its updater bundles signed, re-attested, given an updater manifest and
+published. Nothing is recompiled after the tag.
 
 ## The flow
 
 ```text
-Release prepare (maintainer dispatch: X.Y.Z) ─► pull request release/vX.Y.Z ─► review, CI, merge
+Release prepare (maintainer dispatch: X.Y.Z) ─► pull request release/vX.Y.Z ─► CI, automatic merge
    generated files · automatic commit and PR                                          │
                                                                                      ▼
 Release tag (push to main, CHANGELOG.md) ─► automatic annotated tag on the merge commit
@@ -19,17 +20,19 @@ Release candidate (tag push) ─► tag ✓ · native matrix · SBOM · provenan
                                                                                      │
                                                                                      ▼
 Release publish (candidate green; or maintainer dispatch: tag + run id)
-   automatic verification ─► ✋ ① sign macOS / Windows ─► ✋ ② publish release and updater
+   automatic verification ─► ✋ sign macOS / Windows · sign the updater bundles ─► publish release and updater
 ```
 
-✋ is a stop of the protected environment `release`. Approve the three pending platform-signing jobs
-as one group after real-machine acceptance; approve publication separately after all signatures pass.
-The version PR still requires ordinary review, CI and merge. Those source controls and the initial
-maintainer dispatch are separate from the two release-environment approval rounds.
+✋ is the one stop of the protected environment `release`. Its four signing jobs wait together after
+verification: approve them as one group after real-machine acceptance — that approval is the person's
+word that signs **and** publishes. Publication follows by itself once every signature passes and holds no
+secret. The version PR is generated and checked by *Release prepare* and merges itself (auto-merge) once
+CI is green; a maintainer may still review or close it before then.
 
 Preparation and tagging use `release-automation`, an environment restricted to the `main` branch with
 only the release App's credentials and no required reviewer. Read-only candidate verification uses no
-environment. Signing and publication retain the protected `release` environment.
+environment. Signing — the platforms' and the updater's — retains the protected `release` environment;
+publication uses none.
 
 ### 0. The version — [`release-prepare.yml`](../../.github/workflows/release-prepare.yml) and [`release-tag.yml`](../../.github/workflows/release-tag.yml)
 
@@ -46,7 +49,8 @@ second job automatically reads those five files, preserving the nested
 manifest path, and writes **one commit through the GitHub API** (GitHub signs it) on
 `release/vX.Y.Z`, then opens the pull request with the changelog section as its body. The token is the
 **Nexa Bridge Release** GitHub App's, minted for the job: a pull request or a tag made with the workflow's
-own token would start no workflow.
+own token would start no workflow. The same token turns on the pull request's auto-merge (squash), so the
+merge waits for CI and nothing else; the repository must allow auto-merge.
 
 **Release tag** runs on every push to `main` that touches `CHANGELOG.md`. When the workspace version has
 its section and no tag yet, it creates the annotated tag `vX.Y.Z` on that reviewed merge commit
@@ -88,8 +92,8 @@ candidate is built.
 Starts by itself when a *Release candidate* run started by a tag push of this repository ends green
 (`workflow_run`), with that run's tag and **run id**; it can also be started by hand (`workflow_dispatch`)
 with the tag and the run id of an earlier candidate. Verification runs automatically with read-only
-permissions and no environment secrets. The reviewers approve signing after acceptance and publication
-after signing; both stages retain the environment `release`:
+permissions and no environment secrets. The reviewers approve the signing jobs after acceptance, in one
+group; they are the only jobs in the environment `release`, and publication follows them by itself:
 
 1. **`verify`** — the run id's head commit is the tag's commit, the run is green, it is a *Release
    candidate* run started by the tag push; the artifact is downloaded **by run id, never rebuilt**;
@@ -108,19 +112,22 @@ after signing; both stages retain the environment `release`:
    installers around them, marking and signing the desktop executable for each package
    ([why](#the-updater-channel)) and signing the installers with the same identity; every signature, the
    installers' embedded executables included, is checked with `Get-AuthenticodeSignature`.
+   Each platform job then signs its own updater bundles — the `.app.tar.gz`, the NSIS and MSI installers —
+   over the bytes it produced; **`sign-linux`** signs the candidate's AppImage and Debian packages the same
+   way ([the updater channel](#the-updater-channel)).
    Each job writes a **signing report** (`signing-report-<target>.json`): the digests of the candidate
    bytes it started from, the digests of what it produced, which candidate files those replace, the tools.
    That is where a packaging or signing difference is tracked — the compiled bytes are the candidate's,
    the wrappers around them are new.
 3. **`publish`** — assembles the release set (Linux packages and binaries as built; macOS and Windows as
    signed; the SBOM, `candidate.json`, the signing reports), gives every asset one stable name without the
-   version (`nexa-bridge-<target>.<ext>`, `nexa-llm-bridge-<target>`), signs the updater bundles and writes
-   [`latest.json`](#the-updater-channel), writes `SHA256SUMS` and
+   version (`nexa-bridge-<target>.<ext>`, `nexa-llm-bridge-<target>`), checks every updater signature and
+   writes [`latest.json`](#the-updater-channel), writes `SHA256SUMS` and
    `release-manifest.json` (asset → source → digest), asks GitHub for a provenance attestation of the
    **published bytes**, writes the notes from the changelog section plus the verification commands, and
-   publishes the release with every asset — marked *latest*, or *pre-release* for `X.Y.Z-N`. The
-   approval of this job is the person's word that makes it public: a published release is what installed
-   apps update to. Because the names are stable, a page links one system's installer at
+   publishes the release with every asset — marked *latest*, or *pre-release* for `X.Y.Z-N`. It holds no
+   secret and waits for no one: the signing approval was the person's word that makes it public, and a
+   published release is what installed apps update to. Because the names are stable, a page links one system's installer at
    `https://github.com/NexaEthos/nexa-bridge/releases/latest/download/<name>`.
 
 Linux packages are not signed by a key of ours; their verifiability is the provenance attestation and the
@@ -129,8 +136,12 @@ checksum list. A detached signature would need a key to manage; the attestation 
 ### The updater channel {#the-updater-channel}
 
 The installed app updates itself from `releases/latest/download/latest.json` ([desktop.md](desktop.md#updates)).
-The `publish` job writes that manifest: it signs each updater bundle of the release set with the updater key
-(`tauri signer sign --app-version <version>`, so the signature names the version it was made for) and lists,
+Each updater bundle is signed with the updater key inside the approved signing stage
+([`updater-sign.sh`](../../.github/scripts/updater-sign.sh): `tauri signer sign --app-version <version>` over
+a copy named as the release asset, so the signature names the version and the file it was made for), the
+macOS and Windows bundles after their platform signature, the Linux ones as the candidate built them. The
+`publish` job writes the manifest: it verifies every signature with `minisign` against the app's own public
+key (`plugins.updater.pubkey`) over the bytes it publishes and checks that it names this version, then lists,
 per platform key, the bundle's URL **under this tag** and its signature. The notes are the changelog section.
 `latest.json` is a release asset like the others: it is in `SHA256SUMS`, in `release-manifest.json` and in
 the provenance attestation. `latest` resolves only to a published release that is not a pre-release, so
@@ -216,8 +227,8 @@ there is no new main bypass or tag update/delete permission. Protect review of w
 carefully as source changes: a main-only environment restricts the ref, not the workflow filename.
 
 Validate the next release by checking that prepare/tag/verify never wait for an environment review,
-that signing waits until its candidate verification has passed, and that publication waits separately
-for the maintainer after all signing jobs succeed. A rollback restores the App inputs to `release`
+that the four signing jobs wait together until their candidate verification has passed, and that
+publication runs by itself after all of them succeed. A rollback restores the App inputs to `release`
 and the prior workflow references; it does not modify existing tags or published assets.
 
 Not in this flow: store submissions and a GPG signature for Linux packages.
@@ -262,6 +273,11 @@ ambiguous match fails before publication, preserving the candidate-to-release ma
   keychain is created for the job and deleted after it.
 
 ## Changelog
+
+- 2026-10-26 — One release approval (Max: the clicks were too many). The updater bundles are signed inside
+  the approved signing stage (a new `sign-linux` job for the Linux packages) and `publish` holds no secret,
+  verifying each signature against the app's key instead; the version pull request merges itself once CI
+  is green.
 
 - 2026-10-24 — Reduce release approval rounds to signing and publication; isolate the release App in
   main-only automation and leave candidate verification read-only without environment access.
