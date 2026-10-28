@@ -143,6 +143,18 @@ balances. How the bridge decides: [docs/wiki/load-balancing.md](docs/wiki/load-b
   with a workspace on its own credential and sends observations over HTTPS. Observation only: the device takes no
   commands.
 
+## Profiles
+
+Agora sends your model's requests with an operating profile the workspace chooses for the connection, named by model
+family and never by a checkpoint: **Qwen**, **Qwen High**, **Qwen Extra High**, **Gemma**, **Muse Glimmer** and
+**LFM**. The three Qwen profiles differ by one number only, the reasoning budget — 512, 1,024 or 2,048 tokens per
+call — because on Qwen 3.x the level word alone does not bound the reasoning: measured, without a budget 14 of 15
+planning runs spent the whole output window thinking; with one, every run closed and answered. What each profile
+sends and what your runtime must support: [docs/wiki/profiles.md](docs/wiki/profiles.md).
+
+Want a profile that is not there yet? Propose it in the **Bridge** section of the
+[NexaEthos Agora Discord](https://discord.gg/k2cFcM2Kc).
+
 ## How it works
 
 ```mermaid

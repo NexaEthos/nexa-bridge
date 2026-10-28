@@ -46,7 +46,8 @@ Nexa's certification label, the context window it declares, and Nexa's guide for
 LM Studio, Ollama, llama.cpp, vLLM, SGLang or another OpenAI-compatible server). The panel shows the guide of the
 detected runtime, every runtime's before detection. Nothing is applied automatically, and what the model server
 loads is the person's responsibility. A connection that has published no model, or whose computers publish
-different ones, is refused by Agora in words.
+different ones, is refused by Agora in words. The profiles that exist, what each sends and what each runtime must
+support are in [Profiles](profiles.md).
 
 Connect publishes the exact served id, the detected runtime and, on LM Studio, the context of the exact loaded
 instance (not the model's advertised maximum) when it can be read; an unreadable context is logged and published
@@ -86,6 +87,7 @@ acceptance, not a new relay deployment or a claim of cross-platform validation.
 
 ## Changelog
 
+- 2026-10-28 — the profiles have their own page, [Profiles](profiles.md), linked from the presets section.
 - 2026-10-25 — presets are operating profiles: Agora sends the model this computer serves with the chosen preset's settings; the panel no longer matches a preset's id to the selected model.
 - 2026-09-06: Add explicit versioned Agora profile selection, fail-visible catalog refresh and
   loaded-instance context validation. Keep recipes and credentials outside the desktop projection.
