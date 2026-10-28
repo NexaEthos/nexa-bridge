@@ -25,6 +25,8 @@ the explanation stays in one place.
 - [Robot module](robot.md) — topic governance and Foxglove encoders.
 - [Desktop app](desktop.md) — the Tauri tray app, managed linking and verified connection state.
 - [Model selection](model-selection.md) — exclusive serving and the workspace's models with Nexa's guides.
+- [Profiles](profiles.md) — the operating presets Agora sends with, the Qwen reasoning budget, what each runtime
+  must support.
 
 ## Contributing
 
