@@ -9,8 +9,8 @@ mod observation;
 mod store;
 
 #[cfg(unix)]
-pub use cli::{observe, pair};
+pub use cli::{Delivery, deliver, device, observe, pair};
 pub use client::{Acknowledged, Device, Pairing, Session};
 use client::{random_id, timestamp};
 pub use error::{Error, Refusal};
-pub use observation::Source;
+pub use observation::{DeclaredClass, Source};

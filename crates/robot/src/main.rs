@@ -17,7 +17,7 @@ async fn main() -> anyhow::Result<()> {
     {
         writeln!(
             std::io::stdout(),
-            "nexa-robot: read-only hardware observations\n\ninspect-uno-q <ADB-serial>\ninspect-ros-battery\npair-uno-q <private-state-file> <API-origin> <approval-origin> <ADB-serial> <asset>\npair-ros-battery <private-state-file> <API-origin> <approval-origin> <asset>\nobserve <state-file> <expected-workspace-slug>\n\nPairing and observe are available on Unix only. Pairing requires browser approval.\nObserve sends one observation or retries its pending event.\nROS/Zenoh service mode is not implemented. See docs/wiki/robot.md."
+            "nexa-robot: read-only hardware observations\n\ninspect-uno-q <ADB-serial>\ninspect-ros-battery\npair-uno-q <private-state-file> <API-origin> <approval-origin> <ADB-serial> <asset>\npair-ros-battery <private-state-file> <API-origin> <approval-origin> <asset>\npair-declared <private-state-file> <API-origin> <approval-origin> <lab_board|robot> <declaration.json> <asset>\nobserve <state-file> <expected-workspace-slug>\ndeliver <state-file> <expected-workspace-slug> <outbox-directory>\ndevice <state-file>\n\nPairing, observe, deliver and device are available on Unix only. Pairing requires browser approval.\nObserve sends one observation or retries its pending event.\nDeliver beats, then sends a declared device's queued events and removes each once stored.\nROS/Zenoh service mode is not implemented. See docs/wiki/robot.md."
         )?;
         return Ok(());
     }
@@ -25,7 +25,7 @@ async fn main() -> anyhow::Result<()> {
     if args.first().is_some_and(|command| {
         matches!(
             command.as_str(),
-            "pair-uno-q" | "pair-ros-battery" | "observe"
+            "pair-uno-q" | "pair-ros-battery" | "pair-declared" | "observe" | "deliver" | "device"
         )
     }) {
         hardware_command(&args).await?;
@@ -111,6 +111,23 @@ async fn hardware_command(args: &[String]) -> anyhow::Result<()> {
             )
             .await?
         }
+        [command, path, api, approval, class, declaration, asset] if command == "pair-declared" => {
+            hardware::pair(
+                std::path::Path::new(path),
+                api,
+                approval,
+                hardware::Source::Declared {
+                    declaration: std::path::PathBuf::from(declaration),
+                    class: hardware::DeclaredClass::parse(class)?,
+                },
+                asset,
+            )
+            .await?
+        }
+        [command, path, workspace, outbox] if command == "deliver" => {
+            return deliver_command(path, workspace, outbox).await;
+        }
+        [command, path] if command == "device" => return device_command(path).await,
         [command, path, workspace] if command == "observe" => {
             let receipt = hardware::observe(std::path::Path::new(path), workspace).await?;
             writeln!(
@@ -132,8 +149,48 @@ async fn hardware_command(args: &[String]) -> anyhow::Result<()> {
     )?;
     writeln!(
         std::io::stdout(),
-        "Approval expires in {} seconds. After approval, use observe with this state file and the approved workspace slug.",
+        "Approval expires in {} seconds. After approval, use observe (or deliver, for a declared device) with this state file and the approved workspace slug.",
         pairing.expires_in
+    )?;
+    Ok(())
+}
+
+#[cfg(unix)]
+async fn deliver_command(path: &str, workspace: &str, outbox: &str) -> anyhow::Result<()> {
+    let delivery = hardware::deliver(
+        std::path::Path::new(path),
+        workspace,
+        std::path::Path::new(outbox),
+    )
+    .await?;
+    let rejected = if delivery.rejected.is_empty() {
+        String::new()
+    } else {
+        format!(
+            " ({}, kept in the outbox's rejected directory)",
+            delivery.rejected.join(", ")
+        )
+    };
+    let wait = delivery.retry_after.map_or_else(String::new, |seconds| {
+        format!("; the workspace asks to wait {seconds} seconds")
+    });
+    writeln!(
+        std::io::stdout(),
+        "Delivered {}, rejected {}{rejected}, still queued {}{wait}",
+        delivery.delivered,
+        delivery.rejected.len(),
+        delivery.remaining,
+    )?;
+    Ok(())
+}
+
+#[cfg(unix)]
+async fn device_command(path: &str) -> anyhow::Result<()> {
+    let device = hardware::device(std::path::Path::new(path)).await?;
+    writeln!(
+        std::io::stdout(),
+        "{}",
+        serde_json::json!({"id": device.id, "status": device.status, "device_class": device.class, "tenant_slug": device.tenant_slug})
     )?;
     Ok(())
 }
