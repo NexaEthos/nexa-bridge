@@ -54,6 +54,72 @@ pub async fn device(path: &Path) -> Result<Device, Error> {
     state.device().await
 }
 
+/// A declared device's state for a command door, its approval checked; no lock, the state is written once at pairing.
+async fn declared(path: &Path, expected_workspace: &str) -> Result<Session, Error> {
+    let state: Session = store::read(path)?;
+    if !matches!(state.source, Source::Declared { .. }) {
+        return Err(Error::Contract(
+            "Commands serve a declared device; this state file belongs to another adapter",
+        ));
+    }
+    state.approved(expected_workspace).await?;
+    Ok(state)
+}
+
+/// Wait up to `wait` seconds for the device's approved commands and the stops of its accepted ones.
+/// # Errors
+/// Reports unreadable state, a refused credential, transport failures and the workspace's refusals.
+pub async fn commands(path: &Path, expected_workspace: &str, wait: u64) -> Result<Value, Error> {
+    declared(path, expected_workspace)
+        .await?
+        .poll_commands(wait)
+        .await
+}
+
+/// Read one of the device's commands.
+/// # Errors
+/// Reports unreadable state, a refused credential, transport failures and the workspace's refusals.
+pub async fn command(
+    path: &Path,
+    expected_workspace: &str,
+    command_id: &str,
+) -> Result<Value, Error> {
+    declared(path, expected_workspace)
+        .await?
+        .read_command(command_id)
+        .await
+}
+
+/// Send the executor's acknowledgement of a command.
+/// # Errors
+/// Reports unreadable state, a refused credential, transport failures and the workspace's refusals.
+pub async fn acknowledge(
+    path: &Path,
+    expected_workspace: &str,
+    command_id: &str,
+    body: &Value,
+) -> Result<Value, Error> {
+    declared(path, expected_workspace)
+        .await?
+        .acknowledge_command(command_id, body)
+        .await
+}
+
+/// Send the executor's outcome of a command.
+/// # Errors
+/// Reports unreadable state, a refused credential, transport failures and the workspace's refusals.
+pub async fn report(
+    path: &Path,
+    expected_workspace: &str,
+    command_id: &str,
+    body: &Value,
+) -> Result<Value, Error> {
+    declared(path, expected_workspace)
+        .await?
+        .report_command(command_id, body)
+        .await
+}
+
 /// What one round of outbox delivery did.
 #[derive(Debug, Default)]
 pub struct Delivery {

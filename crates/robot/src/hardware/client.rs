@@ -232,9 +232,17 @@ impl Session {
     /// # Errors
     /// Retain the document after every error, including a rate-limited response.
     pub async fn deliver(&self, workspace: &str, event: &Value) -> Result<Acknowledged, Error> {
+        let device = self.approved(workspace).await?;
+        self.deliver_as(&device, event).await
+    }
+
+    /// Read the device and check it is approved in the expected workspace, with this source's class.
+    /// # Errors
+    /// Reports a refused credential, another workspace or another class.
+    pub async fn approved(&self, workspace: &str) -> Result<Device, Error> {
         let device = self.device().await?;
         validate_device(&device, workspace, self.source.class())?;
-        self.deliver_as(&device, event).await
+        Ok(device)
     }
 
     /// Deliver one document for a device already checked this round.
@@ -273,14 +281,19 @@ impl Session {
 }
 
 fn client() -> Result<Client, Error> {
+    https_client(Duration::from_secs(15))
+}
+
+/// An HTTPS-only client that never follows a redirect, bounded by `timeout`.
+pub(super) fn https_client(timeout: Duration) -> Result<Client, Error> {
     Ok(Client::builder()
         .https_only(true)
         .redirect(reqwest::redirect::Policy::none())
-        .timeout(Duration::from_secs(15))
+        .timeout(timeout)
         .build()?)
 }
 
-fn endpoint(state: &Session, suffix: &str) -> Result<Url, Error> {
+pub(super) fn endpoint(state: &Session, suffix: &str) -> Result<Url, Error> {
     origin(&state.origin)?
         .join(&format!("{API}{suffix}"))
         .map_err(|_| Error::Contract("Invalid hardware API path"))
@@ -356,7 +369,7 @@ async fn success(response: Response) -> Result<Response, Error> {
     }
 }
 
-async fn failure(response: Response) -> Error {
+pub(super) async fn failure(response: Response) -> Error {
     let status = response.status().as_u16();
     if status == 429 {
         return response

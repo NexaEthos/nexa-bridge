@@ -7,6 +7,17 @@ lives in the wiki pages under `docs/wiki/`.
 
 ## [Unreleased]
 
+### Added
+
+- A device that runs its own software, such as an edge runtime beside a bench, pairs from its own declaration file
+  (`nexa-robot pair-declared`) and has the Bridge carry the Physical Events it queues in its outbox
+  (`nexa-robot deliver`): each event leaves the outbox once stored, a rejected one is kept aside, and `nexa-robot
+  device` names the approved device.
+- The commands of a declared device: `nexa-robot commands` waits up to 30 seconds for the commands a person approved
+  in the workspace, `command` reads one, and `ack` and `result` carry the device's acknowledgement and outcome back.
+  Each prints the workspace's answer as one JSON line; a refusal, such as a command already stopped, prints
+  `{"refused": …}` and exits 2.
+
 ## [1.1.1] - 2026-10-26
 
 ### Fixed
