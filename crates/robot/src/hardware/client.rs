@@ -217,12 +217,30 @@ impl Session {
         Ok(())
     }
 
+    /// Check the approval, beat with the current declaration and return the approved device.
+    /// # Errors
+    /// Reports approval, workspace, declaration or heartbeat failures.
+    pub async fn present(&self, workspace: &str) -> Result<Device, Error> {
+        let device = self.device().await?;
+        validate_device(&device, workspace, self.source.class())?;
+        let snapshot = self.source.capture().await?;
+        self.heartbeat(&snapshot).await?;
+        Ok(device)
+    }
+
     /// Deliver the exact persisted document and validate its matching receipt.
     /// # Errors
     /// Retain the document after every error, including a rate-limited response.
     pub async fn deliver(&self, workspace: &str, event: &Value) -> Result<Acknowledged, Error> {
         let device = self.device().await?;
         validate_device(&device, workspace, self.source.class())?;
+        self.deliver_as(&device, event).await
+    }
+
+    /// Deliver one document for a device already checked this round.
+    /// # Errors
+    /// Retain the document after every error; a judged-unacceptable one is [`Error::Rejected`].
+    pub async fn deliver_as(&self, device: &Device, event: &Value) -> Result<Acknowledged, Error> {
         if event
             .pointer("/provenance/device_id")
             .and_then(Value::as_str)
@@ -392,10 +410,10 @@ fn checked_receipt(mut receipts: Vec<Receipt>, event_id: &str) -> Result<Acknowl
         "rate_limited" => Err(Error::RateLimited(receipt.retry_after_seconds.ok_or(
             Error::Contract("Rate limit receipt lacks retry delay; pending observation retained"),
         )?)),
-        "conflict" => Err(Error::Contract(
+        "conflict" => Err(Error::Rejected(
             "Event ID conflicts with a stored document; pending observation retained for diagnosis",
         )),
-        "invalid" => Err(Error::Contract(
+        "invalid" => Err(Error::Rejected(
             "Server rejected the observation; pending observation retained for diagnosis",
         )),
         _ => Err(Error::Contract(

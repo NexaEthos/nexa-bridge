@@ -36,6 +36,9 @@ pub enum Error {
         /// Documented refusal text, when available.
         refusal: Option<Refusal>,
     },
+    /// The platform judged the event itself unacceptable; it is kept aside for diagnosis, never resent as is.
+    #[error("{0}")]
+    Rejected(&'static str),
     /// The same pending event must wait before retrying.
     #[error("Observation retained; retry after {0} seconds with the same state file")]
     RateLimited(u64),

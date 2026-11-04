@@ -190,6 +190,42 @@ and sentence: `workspace_unavailable`, `device_not_approved` or a revoked creden
 operator the way out. No other field and no other body is ever printed, and control characters are
 dropped before the text reaches the terminal.
 
+## A declared device and its outbox
+
+A device that runs its own software — an edge runtime beside a bench, such as Nexa Edge — describes itself and
+writes its own Physical Events; the Bridge pairs it, keeps its credential and carries those events, and reads
+nothing of the device itself. The two meet in two files: a **declaration** and an **outbox**.
+
+The declaration is a JSON object holding exactly `firmware_version` (1–64 printable characters), `platform` (any of
+`os`, `os_version`, `arch`, `board`, as strings — never a serial or a hostname) and a non-empty `capabilities` list,
+each `{name: "<domain>.<verb>", kind: "observe", params}`. Actuation is not declared here. It is read at pairing and
+again at every heartbeat, so a changed declaration reaches the workspace at the next beat:
+
+```sh
+cargo run -p nexa-robot --locked -- pair-declared \
+  "$HOME/.nexa-hardware/edge.json" https://api.example.com https://agora.example.com \
+  lab_board /etc/example/declaration.json "lab/bench-1"
+cargo run -p nexa-robot --locked -- device "$HOME/.nexa-hardware/edge.json"
+```
+
+The class is `lab_board` or `robot`; the declaration path is absolute. `device` prints the approved device's `id`,
+`status`, class and workspace: the device writes that `id` as `provenance.device_id` in every event it queues.
+
+The outbox is a directory of queued events, one Physical Event v0 per regular `.json` file; names starting with a
+dot are the device's own staging files and are never read. One delivery round:
+
+```sh
+cargo run -p nexa-robot --locked -- deliver "$HOME/.nexa-hardware/edge.json" my-workspace /var/lib/example/outbox
+```
+
+checks the approval and the workspace, beats with the current declaration, then sends each queued file in name
+order, the exact bytes the device wrote. A `stored` or `duplicate` receipt removes the file. An `invalid` or
+`conflict` receipt moves it to the outbox's `rejected` directory, kept for diagnosis and never resent as it is. A
+`rate_limited` receipt ends the round with the seconds to wait; a transport or approval failure ends it with the
+error. Either way the remaining files stay queued with their event IDs, so the next round resends them and a
+duplicate is free. A round reports what it delivered, rejected and left queued; running it again at the cadence the
+heartbeat asks for keeps the device online.
+
 ## Live acceptance and remaining coverage
 
 The staging acceptance used a real USB-connected UNO Q and a ROS Jazzy ARM64 robot. Each device
@@ -246,6 +282,9 @@ They are kept pure precisely so the protocol shape is verified by tests long bef
 exists.
 
 ## Changelog
+
+- 2026-11-04 — A declared device: `pair-declared` from a declaration file, `device`, and `deliver`, which beats and
+  sends the events a device queued in its outbox, removing each once stored and keeping the rejected aside.
 
 - 2026-10-20 — The retention paragraph and the acceptance list keep to what the device and its owner see; the
   server's own storage mechanics live with the server.
