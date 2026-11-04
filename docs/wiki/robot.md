@@ -20,7 +20,8 @@ ROS/Zenoh transport is implemented in either build. Do not deploy it as a workin
 
 The `inspect-uno-q` command is a separate, implemented read-only USB diagnostic. It reads a real
 Arduino UNO Q through a locally installed `adb`; it does not pair a device or upload observations.
-The pairing commands and `observe` implement the direct HTTPS hardware contract below.
+The pairing commands and `observe` implement the direct HTTPS hardware contract below; a declared device also
+delivers its own events and carries its commands ([#commands](#commands)).
 `inspect-ros-battery` reads one local ROS 2 battery measurement. The ARM64 Linux executable has
 passed a real ROS Jazzy battery read and the missing-environment refusal. Both adapters have also
 passed staging delivery, owner readback and revocation acceptance described below.
@@ -226,6 +227,34 @@ error. Either way the remaining files stay queued with their event IDs, so the n
 duplicate is free. A round reports what it delivered, rejected and left queued; running it again at the cadence the
 heartbeat asks for keeps the device online.
 
+## The commands of a declared device {#commands}
+
+The way back: a person approves, on the workspace, a command its device proposed, and the device carries it out. The
+Bridge only carries it — four command doors, each one request with the state file's credential, each printing the
+workspace's answer as one JSON line on stdout. The device's own runtime holds the loop: it asks, acknowledges, acts
+inside its envelope and reports. The contract is the workspace's Command v0 (Agora's
+`docs/wiki/physical-endpoints.md#tranche-2`).
+
+```sh
+nexa-robot commands "$HOME/.nexa-hardware/edge.json" my-workspace 30
+nexa-robot command  "$HOME/.nexa-hardware/edge.json" my-workspace <command-id>
+echo '{"status":"accepted"}' | nexa-robot ack "$HOME/.nexa-hardware/edge.json" my-workspace <command-id>
+echo '{"outcome":"succeeded","detail":"…","event_ids":["…"]}' | nexa-robot result "$HOME/.nexa-hardware/edge.json" my-workspace <command-id>
+```
+
+- `commands` waits up to the given seconds (0–30, the workspace's longest long poll) for the approved commands not
+  yet acknowledged and the stops of the accepted ones: `{commands: [Command v0…], stops: [command_id…]}`. A command
+  is returned until it is acknowledged, so the runtime acknowledges first, then acts.
+- `ack` and `result` read the runtime's JSON object on stdin and send it as written; the workspace validates it.
+  Repeating the same acknowledgement or outcome changes nothing. Evidence travels as Physical Events in the outbox,
+  named in the outcome's `event_ids`.
+- `command` reads one command, after a reconnection, instead of replaying anything.
+- Each door checks the approval and the workspace first; a command id is the workspace's 36-character id. The doors
+  take no lock: they only read the state, which pairing wrote once, so they never wait on a delivery round.
+- **A refusal** — a stopped or ended command (`409 command_state`), a revoked credential, a rate limit — prints
+  `{"refused": {"status", "code", "detail"}}` (or `{"refused": {"status": 429, "retry_after"}}`) and exits **2**,
+  so the runtime tells it from a transport failure, which exits 1 with the error on stderr.
+
 ## Live acceptance and remaining coverage
 
 The staging acceptance used a real USB-connected UNO Q and a ROS Jazzy ARM64 robot. Each device
@@ -283,6 +312,8 @@ exists.
 
 ## Changelog
 
+- 2026-11-04 — The commands of a declared device: `commands` (the long poll), `command`, `ack` and `result`, the
+  workspace's answer on stdout and its refusals as one JSON line with exit 2 ([#commands](#commands)).
 - 2026-11-04 — A declared device: `pair-declared` from a declaration file, `device`, and `deliver`, which beats and
   sends the events a device queued in its outbox, removing each once stored and keeping the rejected aside.
 

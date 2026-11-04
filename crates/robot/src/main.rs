@@ -8,18 +8,19 @@ use nexa_robot::hardware;
 
 use nexa_robot::config::Config;
 use std::io::Write as _;
+use std::process::ExitCode;
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() -> anyhow::Result<ExitCode> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if let [command] = args.as_slice()
         && matches!(command.as_str(), "--help" | "-h")
     {
         writeln!(
             std::io::stdout(),
-            "nexa-robot: read-only hardware observations\n\ninspect-uno-q <ADB-serial>\ninspect-ros-battery\npair-uno-q <private-state-file> <API-origin> <approval-origin> <ADB-serial> <asset>\npair-ros-battery <private-state-file> <API-origin> <approval-origin> <asset>\npair-declared <private-state-file> <API-origin> <approval-origin> <lab_board|robot> <declaration.json> <asset>\nobserve <state-file> <expected-workspace-slug>\ndeliver <state-file> <expected-workspace-slug> <outbox-directory>\ndevice <state-file>\n\nPairing, observe, deliver and device are available on Unix only. Pairing requires browser approval.\nObserve sends one observation or retries its pending event.\nDeliver beats, then sends a declared device's queued events and removes each once stored.\nROS/Zenoh service mode is not implemented. See docs/wiki/robot.md."
+            "nexa-robot: read-only hardware observations\n\ninspect-uno-q <ADB-serial>\ninspect-ros-battery\npair-uno-q <private-state-file> <API-origin> <approval-origin> <ADB-serial> <asset>\npair-ros-battery <private-state-file> <API-origin> <approval-origin> <asset>\npair-declared <private-state-file> <API-origin> <approval-origin> <lab_board|robot> <declaration.json> <asset>\nobserve <state-file> <expected-workspace-slug>\ndeliver <state-file> <expected-workspace-slug> <outbox-directory>\ndevice <state-file>\ncommands <state-file> <expected-workspace-slug> <wait-seconds 0-30>\ncommand <state-file> <expected-workspace-slug> <command-id>\nack <state-file> <expected-workspace-slug> <command-id>   (the acknowledgement as JSON on stdin)\nresult <state-file> <expected-workspace-slug> <command-id>   (the outcome as JSON on stdin)\n\nPairing, observe, deliver, device and the command doors are available on Unix only. Pairing requires browser approval.\nObserve sends one observation or retries its pending event.\nDeliver beats, then sends a declared device's queued events and removes each once stored.\nThe command doors print the workspace's answer as one JSON line; a refusal prints {{\"refused\": …}} and exits 2.\nROS/Zenoh service mode is not implemented. See docs/wiki/robot.md."
         )?;
-        return Ok(());
+        return Ok(ExitCode::SUCCESS);
     }
     #[cfg(unix)]
     if args.first().is_some_and(|command| {
@@ -29,7 +30,13 @@ async fn main() -> anyhow::Result<()> {
         )
     }) {
         hardware_command(&args).await?;
-        return Ok(());
+        return Ok(ExitCode::SUCCESS);
+    }
+    #[cfg(unix)]
+    if args.first().is_some_and(|command| {
+        matches!(command.as_str(), "commands" | "command" | "ack" | "result")
+    }) {
+        return command_door(&args).await;
     }
     if let [command] = args.as_slice()
         && command == "inspect-ros-battery"
@@ -37,7 +44,7 @@ async fn main() -> anyhow::Result<()> {
         let snapshot = nexa_robot::ros::inspect_battery().await?;
         serde_json::to_writer_pretty(std::io::stdout(), &snapshot)?;
         writeln!(std::io::stdout())?;
-        return Ok(());
+        return Ok(ExitCode::SUCCESS);
     }
     if let [command, serial] = args.as_slice()
         && command == "inspect-uno-q"
@@ -45,7 +52,7 @@ async fn main() -> anyhow::Result<()> {
         let snapshot = nexa_robot::board::inspect_uno_q(serial).await?;
         serde_json::to_writer_pretty(std::io::stdout(), &snapshot)?;
         writeln!(std::io::stdout())?;
-        return Ok(());
+        return Ok(ExitCode::SUCCESS);
     }
     anyhow::ensure!(
         args.is_empty(),
@@ -84,10 +91,76 @@ async fn main() -> anyhow::Result<()> {
 }
 
 #[cfg(unix)]
-async fn hardware_command(args: &[String]) -> anyhow::Result<()> {
+fn install_tls() -> anyhow::Result<()> {
     rustls::crypto::ring::default_provider()
         .install_default()
-        .map_err(|_| anyhow::anyhow!("Could not initialize hardware TLS"))?;
+        .map_err(|_| anyhow::anyhow!("Could not initialize hardware TLS"))
+}
+
+/// The workspace's refusal as one JSON line for the executor, or `None` when the failure is not a refusal.
+#[cfg(unix)]
+fn refusal_line(error: &hardware::Error) -> Option<serde_json::Value> {
+    match error {
+        hardware::Error::Http { status, refusal } => Some(serde_json::json!({"refused": {
+            "status": status,
+            "code": refusal.as_ref().and_then(|r| r.code.clone()),
+            "detail": refusal.as_ref().map(|r| r.detail.clone()),
+        }})),
+        hardware::Error::RateLimited(seconds) => {
+            Some(serde_json::json!({"refused": {"status": 429, "retry_after": seconds}}))
+        }
+        _ => None,
+    }
+}
+
+#[cfg(unix)]
+fn stdin_body() -> anyhow::Result<serde_json::Value> {
+    let body: serde_json::Value =
+        serde_json::from_reader(std::io::stdin().lock()).map_err(|_| {
+            anyhow::anyhow!("Write the acknowledgement or the outcome as one JSON object on stdin")
+        })?;
+    Ok(body)
+}
+
+#[cfg(unix)]
+async fn command_door(args: &[String]) -> anyhow::Result<ExitCode> {
+    install_tls()?;
+    let answer = match args {
+        [door, path, workspace, wait] if door == "commands" => {
+            let wait: u64 = wait
+                .parse()
+                .map_err(|_| anyhow::anyhow!("The wait is a number of seconds, 0 to 30"))?;
+            hardware::commands(std::path::Path::new(path), workspace, wait).await
+        }
+        [door, path, workspace, id] if door == "command" => {
+            hardware::command(std::path::Path::new(path), workspace, id).await
+        }
+        [door, path, workspace, id] if door == "ack" => {
+            hardware::acknowledge(std::path::Path::new(path), workspace, id, &stdin_body()?).await
+        }
+        [door, path, workspace, id] if door == "result" => {
+            hardware::report(std::path::Path::new(path), workspace, id, &stdin_body()?).await
+        }
+        _ => anyhow::bail!("Invalid command-door arguments; run nexa-robot --help"),
+    };
+    match answer {
+        Ok(value) => {
+            writeln!(std::io::stdout(), "{value}")?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Err(error) => match refusal_line(&error) {
+            Some(line) => {
+                writeln!(std::io::stdout(), "{line}")?;
+                Ok(ExitCode::from(2))
+            }
+            None => Err(error.into()),
+        },
+    }
+}
+
+#[cfg(unix)]
+async fn hardware_command(args: &[String]) -> anyhow::Result<()> {
+    install_tls()?;
     let pairing = match args {
         [command, path, api, approval, serial, asset] if command == "pair-uno-q" => {
             hardware::pair(
@@ -210,5 +283,35 @@ fn init_tracing(format: &str) {
             .with(filter)
             .with(fmt::layer())
             .init();
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::refusal_line;
+    use nexa_robot::hardware::{Error, Refusal};
+
+    #[test]
+    fn a_refusal_becomes_one_line_the_executor_reads_and_other_failures_do_not() {
+        let state = Error::Http {
+            status: 409,
+            refusal: Some(Refusal {
+                code: Some("command_state".into()),
+                detail: "The command is stopped".into(),
+            }),
+        };
+        assert_eq!(
+            refusal_line(&state).map(|line| line.to_string()).as_deref(),
+            Some(
+                r#"{"refused":{"code":"command_state","detail":"The command is stopped","status":409}}"#
+            )
+        );
+        assert_eq!(
+            refusal_line(&Error::RateLimited(12))
+                .map(|line| line.to_string())
+                .as_deref(),
+            Some(r#"{"refused":{"retry_after":12,"status":429}}"#)
+        );
+        assert!(refusal_line(&Error::Contract("local")).is_none());
     }
 }
