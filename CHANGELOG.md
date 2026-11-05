@@ -7,6 +7,8 @@ lives in the wiki pages under `docs/wiki/`.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-05
+
 ### Added
 
 - A device that runs its own software, such as an edge runtime beside a bench, pairs from its own declaration file
