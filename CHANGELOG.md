@@ -7,6 +7,13 @@ lives in the wiki pages under `docs/wiki/`.
 
 ## [Unreleased]
 
+### Added
+
+- A device that commands other machines pairs as a `gateway` (`nexa-robot pair-declared … gateway …`) and may
+  declare `actuate` capabilities beside the ones it observes. A `lab_board` or a `robot` still declares
+  observations only. The Bridge carries the declaration, the approved commands and their outcomes; it moves
+  nothing itself.
+
 ### Fixed
 
 - Desktop hardware management opens Integrations › Physical AI. Model connection instructions now point to
