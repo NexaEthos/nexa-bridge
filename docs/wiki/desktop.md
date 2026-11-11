@@ -84,8 +84,11 @@ available. Removing a record pauses it before keychain cleanup, so a locked keyc
 unlocked and removal retried without losing the record that identifies the credential.
 
 A card's **last receipt** is delivery evidence, not online status. The platform's heartbeat expiry
-can mark a board offline between periodic observations. **Manage / revoke in Agora** opens the
-trusted web application; the user revokes there and checks approval again to observe refusal.
+can mark a board offline between periodic observations. **Manage / revoke in Agora** opens
+`/integrations/physical-ai` on the trusted web application. This is the hardware management
+page; model connections belong to `/integrations/bridge`. The user revokes there and checks
+approval again to observe refusal. The web application keeps the `/settings/bridge` redirect
+for installed desktop versions that still use the former route.
 Local removal stops local use and removes its key, but is not server revocation. If removal is explicitly confirmed with an unresolved pending event, a private archive preserves
 the document and metadata before local removal, and the file manager reveals it. The dialog explains
 that it will no longer be retried and may already exist server-side. Archive failure leaves the
@@ -504,6 +507,8 @@ repository.
 
 ## Changelog
 
+- 2026-11-11 — Pointed hardware management at Integrations / Physical AI; existing installed
+  versions retain compatibility through the web application's former-route redirect.
 - 2026-10-26 — A computer Agora no longer accepts stops both sidecars and says why, instead of retrying for ever;
   the panel opens the link step with «Link to Agora again» in sight (found in the acceptance on a Mac).
 - 2026-10-25 — the review and the guides show the operating presets the workspace chose, on the model this computer serves; no preset is matched to the selected id.

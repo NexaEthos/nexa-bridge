@@ -464,7 +464,7 @@ fn finish(term: &Term, args: &Args, paths: &Paths, server: &Server) -> Result<()
     }
     term.blank()?;
     term.line(&format!(
-        "Next: a workspace administrator chooses the operating preset for this server in Agora › Settings › Nexa Bridge («{}»).",
+        "Next: a workspace administrator chooses the operating preset for this server in Agora › Integrations › Nexa Bridge («{}»).",
         server.connection_slug
     ))?;
     term.line("Check it any time with `nexa-bridge status`.")
@@ -529,8 +529,9 @@ pub async fn status(term: &Term) -> Result<()> {
     }
     let presets = agora::guides(&server.agora_url, &proof).await?;
     if presets.is_empty() {
-        return term
-            .line("presets     none chosen for this server yet (Agora › Settings › Nexa Bridge)");
+        return term.line(
+            "presets     none chosen for this server yet (Agora › Integrations › Nexa Bridge)",
+        );
     }
     for preset in &presets {
         term.line(&format!(
@@ -685,7 +686,7 @@ pub fn unlink(term: &Term) -> Result<()> {
     term.done("services stopped and local credentials removed")?;
     if let Some(server) = server {
         term.line(&format!(
-            "Revoke this server in Agora › Settings › Bridge (workspace «{}», device {}).",
+            "Revoke this server in Agora › Integrations › Nexa Bridge (workspace «{}», device {}).",
             server.tenant_slug, server.device_id
         ))?;
     }

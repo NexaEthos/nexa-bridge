@@ -7,6 +7,15 @@ lives in the wiki pages under `docs/wiki/`.
 
 ## [Unreleased]
 
+### Fixed
+
+- Desktop hardware management opens Integrations › Physical AI. Model connection instructions now point to
+  Integrations › Nexa Bridge in the CLI and guides.
+
+### Security
+
+- Updated `rustix` to 1.1.6 for RUSTSEC-2026-0486 without adding dependency-policy exceptions.
+
 ## [1.2.0] - 2026-11-05
 
 ### Added

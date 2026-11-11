@@ -216,7 +216,7 @@ async fn perform(context: &DesktopContext, id: &str, action: Action) -> Result<(
             context
                 .app
                 .opener()
-                .open_url(format!("{origin}/settings/bridge"), None::<&str>)?;
+                .open_url(format!("{origin}/integrations/physical-ai"), None::<&str>)?;
         }
         Action::Forget => forget(context, &mut devices, index).await?,
     }
