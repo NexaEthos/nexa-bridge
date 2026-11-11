@@ -71,7 +71,7 @@ curl -fsSL https://raw.githubusercontent.com/NexaEthos/nexa-bridge/main/install.
 # or, with the programs installed:  nexa-bridge uninstall
 ```
 
-The device then stays approved in Agora until you revoke it in Settings › Bridge. Every option, file and secret:
+The device then stays approved in Agora until you revoke it in Integrations › Nexa Bridge. Every option, file and secret:
 [docs/wiki/server-setup.md](docs/wiki/server-setup.md).
 
 ## High availability and load balancing

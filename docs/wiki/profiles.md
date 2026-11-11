@@ -1,7 +1,7 @@
 # Profiles
 
 A profile is the **operating preset** a workspace chooses for this connection on Agora's Nexa Bridge page
-(Settings › Nexa Bridge). It carries the settings Agora sends with every request — window, output, sampling,
+(Integrations › Nexa Bridge). It carries the settings Agora sends with every request — window, output, sampling,
 thinking, how a forced tool call is phrased — never the model: Agora always sends the exact model your computer
 serves, the id it published at connect. Profiles are named by **model family**, never by a checkpoint, so the
 same profile fits any size or quantization of that family. Which profile fits the model you serve is your choice;
@@ -69,6 +69,8 @@ it in the **Bridge** section: the model family, the runtime you serve it with an
 profiles for new and widely used models as they are tested.
 
 ## Changelog
+
+- 2026-11-11 — Aligned the operating-preset instructions with Integrations › Nexa Bridge.
 
 - 2026-10-28 — the page: the six profiles, the Qwen reasoning budget and why it replaces the level, the runtime
   requirements, the forced tool call in single-tool form, where to propose a new profile.

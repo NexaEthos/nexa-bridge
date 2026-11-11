@@ -36,7 +36,7 @@ byte-for-byte; rejection happens before upstream routing or in-flight counters a
 ## Your workspace's presets
 
 A preset is an **operating profile** — Qwen, Qwen High, Gemma… — that the workspace chooses for this connection on
-Agora's Nexa Bridge page (Settings › Nexa Bridge); its model pickers then offer it through this connection, and a
+Agora's Nexa Bridge page (Integrations › Nexa Bridge); its model pickers then offer it through this connection, and a
 hop of its model settings may also name it. Agora sends every request for the **exact model this computer
 serves**, the id it published at connect, with the chosen preset's settings: the preset never names the model on
 the wire, and nothing matches a preset against the served model — which preset fits the model is the person's
@@ -86,6 +86,8 @@ The temporary bridge was stopped and its generated key was never persisted. This
 acceptance, not a new relay deployment or a claim of cross-platform validation.
 
 ## Changelog
+
+- 2026-11-11 — Aligned the operating-preset instructions with Integrations › Nexa Bridge.
 
 - 2026-10-28 — the profiles have their own page, [Profiles](profiles.md), linked from the presets section.
 - 2026-10-25 — presets are operating profiles: Agora sends the model this computer serves with the chosen preset's settings; the panel no longer matches a preset's id to the selected model.
