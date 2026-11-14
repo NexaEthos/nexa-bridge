@@ -3,15 +3,19 @@
 use std::time::Duration;
 
 use reqwest::Response;
+use reqwest::header::CONTENT_TYPE;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
-use super::client::{endpoint, failure, https_client};
+use super::client::{endpoint, failure, hex, https_client};
 use super::{Error, Session};
 
 /// The longest the workspace holds a long poll, in seconds.
 pub const WAIT_MAX_SECONDS: u64 = 30;
 /// How long past its wait the poll's answer may take to arrive.
 const ANSWER_MARGIN: Duration = Duration::from_secs(15);
+/// How long the workspace may take to answer a photo it is sent.
+const PHOTO_WAIT: Duration = Duration::from_mins(2);
 const COMMAND_ID_LEN: usize = 36;
 
 fn command_suffix(command_id: &str, door: &str) -> Result<String, Error> {
@@ -33,6 +37,31 @@ fn object(body: &Value) -> Result<&Value, Error> {
     } else {
         Err(Error::Contract(
             "An acknowledgement or an outcome is one JSON object",
+        ))
+    }
+}
+
+/// The media type the bytes themselves say they are: a photo is a JPEG or a PNG.
+fn photo_type(photo: &[u8]) -> Result<&'static str, Error> {
+    if photo.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        Ok("image/jpeg")
+    } else if photo.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Ok("image/png")
+    } else {
+        Err(Error::Contract("A photo is a JPEG or a PNG file"))
+    }
+}
+
+fn view_name(view: &str) -> Result<&str, Error> {
+    let valid = !view.is_empty()
+        && view
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
+    if valid {
+        Ok(view)
+    } else {
+        Err(Error::Contract(
+            "A view is the name of a declared place: letters, digits, dots, underscores and hyphens",
         ))
     }
 }
@@ -95,6 +124,32 @@ impl Session {
         self.post_command(command_id, "/result", body).await
     }
 
+    /// Send one photo of a running command, as the device kept it at a declared view: the bytes, their SHA-256
+    /// and the view's name. The Bridge reads the photo and changes nothing in it.
+    /// # Errors
+    /// Rejects a malformed id or view and bytes that are neither a JPEG nor a PNG; reports transport failures
+    /// and refusals.
+    pub async fn publish_photo(
+        &self,
+        command_id: &str,
+        view: &str,
+        photo: Vec<u8>,
+    ) -> Result<Value, Error> {
+        let media = photo_type(&photo)?;
+        let mut url = endpoint(self, &command_suffix(command_id, "/photos")?)?;
+        url.query_pairs_mut()
+            .append_pair("sha256", &hex(&Sha256::digest(&photo))?)
+            .append_pair("view", view_name(view)?);
+        let response = https_client(PHOTO_WAIT)?
+            .post(url)
+            .bearer_auth(&self.token)
+            .header(CONTENT_TYPE, media)
+            .body(photo)
+            .send()
+            .await?;
+        answer(response).await
+    }
+
     async fn post_command(
         &self,
         command_id: &str,
@@ -114,7 +169,7 @@ impl Session {
 
 #[cfg(test)]
 mod tests {
-    use super::{command_suffix, object};
+    use super::{command_suffix, object, photo_type, view_name};
     use serde_json::json;
 
     #[test]
@@ -131,6 +186,21 @@ mod tests {
             "83533b67?wait=1",
         ] {
             assert!(command_suffix(bad, "").is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_photo_is_a_jpeg_or_a_png_by_its_own_bytes_and_a_view_is_a_plain_name() {
+        assert_eq!(
+            photo_type(&[0xFF, 0xD8, 0xFF, 0xE0]).ok(),
+            Some("image/jpeg")
+        );
+        assert_eq!(photo_type(b"\x89PNG\r\n\x1a\n....").ok(), Some("image/png"));
+        assert!(photo_type(b"GIF89a").is_err());
+        assert!(photo_type(&[]).is_err());
+        assert_eq!(view_name("panel-detail").ok(), Some("panel-detail"));
+        for bad in ["", "panel detail", "../home", "view&x=1"] {
+            assert!(view_name(bad).is_err(), "{bad}");
         }
     }
 

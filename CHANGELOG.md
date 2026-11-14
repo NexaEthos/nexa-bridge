@@ -13,6 +13,8 @@ lives in the wiki pages under `docs/wiki/`.
   declare `actuate` capabilities beside the ones it observes. A `lab_board` or a `robot` still declares
   observations only. The Bridge carries the declaration, the approved commands and their outcomes; it moves
   nothing itself.
+- `nexa-robot photo` sends one photo of a running command to the workspace: the file's bytes as they are, their
+  SHA-256 and the name of the declared view. The workspace decides whether the command may publish it.
 
 ### Fixed
 

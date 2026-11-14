@@ -120,6 +120,22 @@ pub async fn report(
         .await
 }
 
+/// Send one photo of a running command, kept by the device at a declared view.
+/// # Errors
+/// Reports an unreadable photo or state, a refused credential, transport failures and the workspace's refusals.
+pub async fn photo(
+    path: &Path,
+    expected_workspace: &str,
+    command_id: &str,
+    view: &str,
+    file: &Path,
+) -> Result<Value, Error> {
+    let session = declared(path, expected_workspace).await?;
+    let bytes = std::fs::read(file)
+        .map_err(|_| Error::Contract("The photo file could not be read; nothing was sent"))?;
+    session.publish_photo(command_id, view, bytes).await
+}
+
 /// What one round of outbox delivery did.
 #[derive(Debug, Default)]
 pub struct Delivery {
