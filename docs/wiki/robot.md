@@ -5,9 +5,10 @@ Source: [`crates/robot/`](../../crates/robot/), package `nexa-robot`.
 The robotics module applies the same shape as the LLM side: the device **dials out**, governance is
 enforced **on the device**, and the human watches through an open standard.
 
-**V1 is telemetry and teleobservation only.** There is no actuation and no command config — not as
-an oversight, but as a boundary. Task-level command dispatch will arrive with its own approval-path
-design. The emergency stop is and stays physical and local.
+**The Bridge observes and carries; it never actuates.** Its own adapters are telemetry and teleobservation only.
+A [declared device](#a-declared-device-and-its-outbox) of the `gateway` class may declare what it actuates itself: the Bridge
+carries that declaration, the commands a person approved in the workspace and their outcomes, and nothing in it
+moves a machine. The emergency stop is and stays physical and local.
 
 ## Status
 
@@ -199,8 +200,11 @@ nothing of the device itself. The two meet in two files: a **declaration** and a
 
 The declaration is a JSON object holding exactly `firmware_version` (1–64 printable characters), `platform` (any of
 `os`, `os_version`, `arch`, `board`, as strings — never a serial or a hostname) and a non-empty `capabilities` list,
-each `{name: "<domain>.<verb>", kind: "observe", params}`. Actuation is not declared here. It is read at pairing and
-again at every heartbeat, so a changed declaration reaches the workspace at the next beat:
+each `{name: "<domain>.<verb>", kind, params}`. `kind` is `observe`; a device that pairs as a `gateway` — an edge
+that commands other machines — may also declare `actuate` capabilities, which it carries out itself once a person
+approved the command. The declaration is read at pairing and again at every heartbeat, so a changed observation
+reaches the workspace at the next beat. What a gateway actuates is fixed when the workspace approves its pairing:
+the workspace refuses a beat that declares another actuation, and the way to change it is a new pairing:
 
 ```sh
 cargo run -p nexa-robot --locked -- pair-declared \
@@ -209,7 +213,7 @@ cargo run -p nexa-robot --locked -- pair-declared \
 cargo run -p nexa-robot --locked -- device "$HOME/.nexa-hardware/edge.json"
 ```
 
-The class is `lab_board` or `robot`; the declaration path is absolute. `device` prints the approved device's `id`,
+The class is `lab_board`, `robot` or `gateway`; the declaration path is absolute. `device` prints the approved device's `id`,
 `status`, class and workspace: the device writes that `id` as `provenance.device_id` in every event it queues.
 
 The outbox is a directory of queued events, one Physical Event v0 per regular `.json` file; names starting with a
@@ -312,6 +316,8 @@ exists.
 
 ## Changelog
 
+- 2026-11-10 — A declared device may pair as a `gateway` and declare `actuate` capabilities; a `lab_board` or a
+  `robot` still observes only. The Bridge carries the declaration and never actuates.
 - 2026-11-04 — The commands of a declared device: `commands` (the long poll), `command`, `ack` and `result`, the
   workspace's answer on stdout and its refusals as one JSON line with exit 2 ([#commands](#commands)).
 - 2026-11-04 — A declared device: `pair-declared` from a declaration file, `device`, and `deliver`, which beats and

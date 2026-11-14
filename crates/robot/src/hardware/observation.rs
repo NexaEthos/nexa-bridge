@@ -38,18 +38,21 @@ pub enum DeclaredClass {
     LabBoard,
     /// A robot.
     Robot,
+    /// An edge that commands other machines: the one class that may declare what it actuates.
+    Gateway,
 }
 
 impl DeclaredClass {
     /// Read a class from its wire name.
     /// # Errors
-    /// Rejects any class other than `lab_board` and `robot`.
+    /// Rejects any class other than `lab_board`, `robot` and `gateway`.
     pub fn parse(name: &str) -> Result<Self, Error> {
         match name {
             "lab_board" => Ok(Self::LabBoard),
             "robot" => Ok(Self::Robot),
+            "gateway" => Ok(Self::Gateway),
             _ => Err(Error::Contract(
-                "A declared device pairs as lab_board or robot",
+                "A declared device pairs as lab_board, robot or gateway",
             )),
         }
     }
@@ -58,7 +61,12 @@ impl DeclaredClass {
         match self {
             Self::LabBoard => "lab_board",
             Self::Robot => "robot",
+            Self::Gateway => "gateway",
         }
+    }
+
+    const fn actuates(self) -> bool {
+        matches!(self, Self::Gateway)
     }
 }
 
@@ -77,26 +85,27 @@ impl Source {
         match self {
             Self::UnoQ { serial } => Ok(Observation::Board(inspect_uno_q(serial).await?)),
             Self::RosBattery => Ok(Observation::Battery(inspect_battery().await?)),
-            Self::Declared { declaration, .. } => {
-                Ok(Observation::Declared(read_declaration(declaration)?))
-            }
+            Self::Declared { declaration, class } => Ok(Observation::Declared(read_declaration(
+                declaration,
+                *class,
+            )?)),
         }
     }
 }
 
-/// Read and check a declaration: exactly a firmware version, a platform and observe-only capabilities.
-fn read_declaration(path: &std::path::Path) -> Result<Value, Error> {
+/// Read and check a declaration: exactly a firmware version, a platform and the capabilities its class may declare.
+fn read_declaration(path: &std::path::Path, class: DeclaredClass) -> Result<Value, Error> {
     if !path.is_absolute() {
         return Err(Error::Contract(
             "Name the declaration file by its absolute path",
         ));
     }
     let declaration: Value = serde_json::from_slice(&std::fs::read(path)?)?;
-    check_declaration(&declaration)?;
+    check_declaration(&declaration, class)?;
     Ok(declaration)
 }
 
-fn check_declaration(declaration: &Value) -> Result<(), Error> {
+fn check_declaration(declaration: &Value, class: DeclaredClass) -> Result<(), Error> {
     let object = declaration
         .as_object()
         .ok_or(Error::Contract("A declaration is a JSON object"))?;
@@ -142,10 +151,22 @@ fn check_declaration(declaration: &Value) -> Result<(), Error> {
                         .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
             })
         });
-        if !shaped || capability.get("kind").and_then(Value::as_str) != Some("observe") {
-            return Err(Error::Contract(
-                "Each capability is named <domain>.<verb> and observes; actuation is not declared here",
-            ));
+        if !shaped {
+            return Err(Error::Contract("Each capability is named <domain>.<verb>"));
+        }
+        match capability.get("kind").and_then(Value::as_str) {
+            Some("observe") => {}
+            Some("actuate") if class.actuates() => {}
+            _ if class.actuates() => {
+                return Err(Error::Contract(
+                    "A gateway's capability observes or actuates",
+                ));
+            }
+            _ => {
+                return Err(Error::Contract(
+                    "A lab_board or a robot observes only; a device that actuates pairs as a gateway",
+                ));
+            }
         }
     }
     Ok(())
@@ -233,27 +254,43 @@ mod tests {
     }
 
     #[test]
-    fn a_declaration_holds_its_three_parts_and_observes_only() {
-        assert!(check_declaration(&declaration()).is_ok());
+    fn a_declaration_holds_its_three_parts() {
+        let board = DeclaredClass::LabBoard;
+        assert!(check_declaration(&declaration(), board).is_ok());
         let mut extra = declaration();
         extra["device_class"] = json!("lab_board");
-        assert!(check_declaration(&extra).is_err());
-        let mut actuating = declaration();
-        actuating["capabilities"][0]["kind"] = json!("actuate");
-        assert!(check_declaration(&actuating).is_err());
+        assert!(check_declaration(&extra, board).is_err());
         let mut misnamed = declaration();
         misnamed["capabilities"][0]["name"] = json!("Bench.Observe");
-        assert!(check_declaration(&misnamed).is_err());
+        assert!(check_declaration(&misnamed, board).is_err());
         let mut serial = declaration();
         serial["platform"]["serial"] = json!("1195033651");
-        assert!(check_declaration(&serial).is_err());
+        assert!(check_declaration(&serial, board).is_err());
         let mut empty = declaration();
         empty["capabilities"] = json!([]);
-        assert!(check_declaration(&empty).is_err());
+        assert!(check_declaration(&empty, board).is_err());
     }
 
     #[test]
-    fn only_two_classes_may_be_declared() {
+    fn only_a_gateway_declares_what_it_actuates() {
+        let mut actuating = declaration();
+        actuating["capabilities"]
+            .as_array_mut()
+            .into_iter()
+            .flatten()
+            .for_each(|capability| capability["kind"] = json!("actuate"));
+        assert!(check_declaration(&actuating, DeclaredClass::Gateway).is_ok());
+        assert!(check_declaration(&declaration(), DeclaredClass::Gateway).is_ok());
+        for observer in [DeclaredClass::LabBoard, DeclaredClass::Robot] {
+            assert!(check_declaration(&actuating, observer).is_err());
+        }
+        let mut unknown = declaration();
+        unknown["capabilities"][0]["kind"] = json!("steer");
+        assert!(check_declaration(&unknown, DeclaredClass::Gateway).is_err());
+    }
+
+    #[test]
+    fn only_three_classes_may_be_declared() {
         assert_eq!(
             DeclaredClass::parse("lab_board").ok(),
             Some(DeclaredClass::LabBoard)
@@ -261,6 +298,10 @@ mod tests {
         assert_eq!(
             DeclaredClass::parse("robot").ok(),
             Some(DeclaredClass::Robot)
+        );
+        assert_eq!(
+            DeclaredClass::parse("gateway").ok(),
+            Some(DeclaredClass::Gateway)
         );
         assert!(DeclaredClass::parse("llm_node").is_err());
     }
