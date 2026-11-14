@@ -234,7 +234,7 @@ heartbeat asks for keeps the device online.
 ## The commands of a declared device {#commands}
 
 The way back: a person approves, on the workspace, a command its device proposed, and the device carries it out. The
-Bridge only carries it — four command doors, each one request with the state file's credential, each printing the
+Bridge only carries it — five command doors, each one request with the state file's credential, each printing the
 workspace's answer as one JSON line on stdout. The device's own runtime holds the loop: it asks, acknowledges, acts
 inside its envelope and reports. The contract is the workspace's Command v0 (Agora's
 `docs/wiki/physical-endpoints.md#tranche-2`).
@@ -244,6 +244,7 @@ nexa-robot commands "$HOME/.nexa-hardware/edge.json" my-workspace 30
 nexa-robot command  "$HOME/.nexa-hardware/edge.json" my-workspace <command-id>
 echo '{"status":"accepted"}' | nexa-robot ack "$HOME/.nexa-hardware/edge.json" my-workspace <command-id>
 echo '{"outcome":"succeeded","detail":"…","event_ids":["…"]}' | nexa-robot result "$HOME/.nexa-hardware/edge.json" my-workspace <command-id>
+nexa-robot photo    "$HOME/.nexa-hardware/edge.json" my-workspace <command-id> <view> /path/to/frame.jpg
 ```
 
 - `commands` waits up to the given seconds (0–30, the workspace's longest long poll) for the approved commands not
@@ -253,6 +254,11 @@ echo '{"outcome":"succeeded","detail":"…","event_ids":["…"]}' | nexa-robot r
   Repeating the same acknowledgement or outcome changes nothing. Evidence travels as Physical Events in the outbox,
   named in the outcome's `event_ids`.
 - `command` reads one command, after a reconnection, instead of replaying anything.
+- `photo` sends one photo of a running command, taken at a declared view: the file's bytes as they are, with
+  their SHA-256 and the view's name. The Bridge reads the file, checks that it begins as a JPEG or a PNG and that
+  the view is a plain name, and changes nothing in it; the workspace checks the digest, decides whether the command
+  was approved to publish photos and answers `{document_id, sha256, bytes}`. Nothing is kept or retried by the
+  Bridge: the runtime decides what a refusal or a failure means for its mission.
 - Each door checks the approval and the workspace first; a command id is the workspace's 36-character id. The doors
   take no lock: they only read the state, which pairing wrote once, so they never wait on a delivery round.
 - **A refusal** — a stopped or ended command (`409 command_state`), a revoked credential, a rate limit — prints
@@ -316,6 +322,8 @@ exists.
 
 ## Changelog
 
+- 2026-11-14 — `photo`: a declared device sends one photo of a running command, bytes and digest as they are;
+  the workspace decides whether the command may publish it ([#commands](#commands)).
 - 2026-11-10 — A declared device may pair as a `gateway` and declare `actuate` capabilities; a `lab_board` or a
   `robot` still observes only. The Bridge carries the declaration and never actuates.
 - 2026-11-04 — The commands of a declared device: `commands` (the long poll), `command`, `ack` and `result`, the

@@ -448,7 +448,7 @@ pub(super) fn random_id() -> Result<String, Error> {
     hex(&bytes)
 }
 
-fn hex(bytes: &[u8]) -> Result<String, Error> {
+pub(super) fn hex(bytes: &[u8]) -> Result<String, Error> {
     let mut text = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
         write!(&mut text, "{byte:02x}")
