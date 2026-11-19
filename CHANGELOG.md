@@ -7,6 +7,8 @@ lives in the wiki pages under `docs/wiki/`.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-19
+
 ### Added
 
 - A device that commands other machines pairs as a `gateway` (`nexa-robot pair-declared … gateway …`) and may
