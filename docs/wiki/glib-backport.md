@@ -51,8 +51,16 @@ The complete source delta is:
 `vendor/glib-backport.json` records the hashes of every original and patched file. Its source
 hashes were generated from the verified archive, not from a Cargo cache with unknown local edits.
 `vendor/.gitattributes` preserves the crate's exact bytes on every checkout, including Windows.
-`.cargo/config.toml` selects this copy through Cargo's `[patch.crates-io]` mechanism; Cargo
-generates the corresponding path entry in `Cargo.lock`. The manifests are otherwise unchanged.
+The workspace manifest selects this copy through Cargo's `[patch.crates-io]` mechanism; Cargo
+generates the corresponding path entry in `Cargo.lock`. The crate manifests are otherwise unchanged.
+
+The override lives in `Cargo.toml`, not in `.cargo/config.toml`, for two reasons. A manifest
+patch belongs to the workspace and applies wherever it is built; a config file is found from the
+directory Cargo is run in, so a build started elsewhere would not see it. And Dependabot fetches
+the manifest of a path override only when a manifest declares it: with the override in the config
+file its weekly Cargo update could not resolve the workspace («patch location `vendor/glib` does
+not contain a Cargo.toml») and proposed no dependency update at all. The verifier refuses a
+second override in a Cargo config.
 
 ## Verification and advisory coverage
 
@@ -113,5 +121,7 @@ rename the dependency or change its version just to make the advisory disappear.
 
 ## Changelog
 
+- 2026-11-21 — the override moved from `.cargo/config.toml` to the workspace manifest: Dependabot's
+  weekly Cargo update had failed since the backport, because it could not fetch the vendored manifest.
 - 2026-10-24 — User-authorized upstream backport and explicit transitive unsound coverage;
   Architect-approved vendoring scope, provenance verification and optimized Linux regression.

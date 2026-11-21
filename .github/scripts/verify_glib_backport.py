@@ -27,9 +27,13 @@ def verify(root: Path) -> None:
         message = f"GLib source differs from the reviewed backport: {', '.join(changed)}"
         raise ValueError(message)
 
-    config = tomllib.loads((root / ".cargo/config.toml").read_text())
-    if config.get("patch", {}).get("crates-io", {}).get("glib") != {"path": "vendor/glib"}:
-        message = "Cargo must select the reviewed vendor/glib override"
+    manifest = tomllib.loads((root / "Cargo.toml").read_text())
+    if manifest.get("patch", {}).get("crates-io", {}).get("glib") != {"path": "vendor/glib"}:
+        message = "The workspace manifest must select the reviewed vendor/glib override"
+        raise ValueError(message)
+    config = root / ".cargo/config.toml"
+    if config.exists() and "patch" in tomllib.loads(config.read_text()):
+        message = "A Cargo config must not carry a second source override"
         raise ValueError(message)
     lock = tomllib.loads((root / "Cargo.lock").read_text())
     packages = [package for package in lock["package"] if package["name"] == "glib"]
