@@ -39,3 +39,7 @@ strip = true
 lto = "thin"
 codegen-units = 1
 panic = "abort"
+
+# Wiki: docs/wiki/glib-backport.md
+[patch.crates-io]
+glib = { path = "vendor/glib" }
