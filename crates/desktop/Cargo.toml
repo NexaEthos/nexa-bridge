@@ -51,4 +51,4 @@ keyring = { version = "4.2.0", features = ["zbus-secret-service-keyring-store"] 
 glib = "=0.18.5"
 
 [target.'cfg(unix)'.dependencies]
-nix = { version = "0.31.3", features = ["signal"] }
+nix = { version = "0.32.0", features = ["signal"] }
